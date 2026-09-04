@@ -432,6 +432,7 @@ if(!Array.isArray(state.salesSpecialists)){
   state.salesSpecialists=[...new Set((state.factories||[]).map(f=>f.contact).filter(Boolean))];
   if(!state.salesSpecialists.length)state.salesSpecialists=["Clair","蘇杭"];
 }
+if(!Array.isArray(state.documentRecords))state.documentRecords=[];
 let editIndex=null;
 let overallEditIndex=null;
 const $=id=>document.getElementById(id);
@@ -477,7 +478,7 @@ async function cloudRequest(path,options={}){
 async function loadSharedState(){
   cloudStatus("讀取全部共用資料…");
   try{
-    const rows=await cloudRequest("/rest/v1/app_shared_state?id=eq.main&select=id,factories,quoters,sales_specialists,quotes,overall_quotes,updated_at",{
+    const rows=await cloudRequest("/rest/v1/app_shared_state?id=eq.main&select=id,factories,quoters,sales_specialists,quotes,overall_quotes,document_records,updated_at",{
       method:"GET"
     });
     if(Array.isArray(rows)&&rows.length){
@@ -487,6 +488,7 @@ async function loadSharedState(){
       if(Array.isArray(row.sales_specialists))state.salesSpecialists=row.sales_specialists;
       if(Array.isArray(row.quotes))state.quotes=row.quotes;
       if(Array.isArray(row.overall_quotes))state.overallQuotes=row.overall_quotes;
+      if(Array.isArray(row.document_records))state.documentRecords=row.document_records;
       safeStorageSet(JSON.stringify(state));
       cloudSharedReady=true;
       renderAll();
@@ -513,6 +515,7 @@ async function saveSharedState(force=false){
     sales_specialists:Array.isArray(state.salesSpecialists)?state.salesSpecialists:[],
     quotes:Array.isArray(state.quotes)?state.quotes:[],
     overall_quotes:Array.isArray(state.overallQuotes)?state.overallQuotes:[],
+    document_records:Array.isArray(state.documentRecords)?state.documentRecords:[],
     updated_at:new Date().toISOString(),
     updated_by:session.user?.id||null
   };
@@ -804,8 +807,13 @@ async function generateWord(){
  }
  zip.file(path,new XMLSerializer().serializeToString(doc));
  let blob=await zip.generateAsync({type:"blob",mimeType:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
- let label=type==="specific"?"特定工廠登記委託契約書":type==="specific200"?"特定工廠登記委託契約書20萬版":type==="land"?"土地變更委任契約書":"特登專案整體執行經費預估表";
- downloadBlob(blob,`${fac.name}-${label}-${rocCompact(date)}.docx`);closeDoc()
+ let label=type==="specific"?"特定工廠登記委託契約書":type==="specific200"?"納管到特登委託契約書":type==="land"?"土地變更委任契約書":"特登專案整體執行經費預估表";
+ let recordAmount=0;
+ if(type==="specific"||type==="specific200"||type==="land")recordAmount=Number($("docAmount")?.value||0);
+ else recordAmount=Number($("costTotal")?.value||0);
+ downloadBlob(blob,`${fac.name}-${label}-${rocCompact(date)}.docx`);
+ addDocumentRecord({type,label,fac,date,amount:recordAmount});
+ closeDoc();go("overview")
  }catch(err){console.error("Word generation failed",err);alert("Word 產生失敗："+(err?.message||err)+"\n請把這個錯誤訊息截圖給我，我可以直接修正。")}
 }
 
@@ -1076,21 +1084,81 @@ function deleteStaff(kind,index){
 }
 
 function renderAll(){renderOverview();renderOverallPage();renderFactories();renderPlans();fillFactoryLists();fillQuoters();renderStaffSettings()}
+
+function documentRecordNo(){
+ let d=new Date(),pre="DOC"+String(d.getFullYear()).slice(-2)+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0");
+ return pre+String((state.documentRecords||[]).filter(x=>(x.no||"").startsWith(pre)).length+1).padStart(3,"0")
+}
+function currentLoginEmail(){
+ try{return JSON.parse(localStorage.getItem("suhang_supabase_session")||"null")?.user?.email||""}catch(e){return ""}
+}
+function addDocumentRecord({type,label,fac,date,amount=0}){
+ if(!Array.isArray(state.documentRecords))state.documentRecords=[];
+ state.documentRecords.push({
+  no:documentRecordNo(),
+  recordType:"document",
+  docType:type,
+  date:date||today(),
+  factoryCode:fac?.id||"",
+  factoryName:fac?.name||"",
+  quoter:currentLoginEmail()||fac?.contact||"",
+  category:"文件套用",
+  planName:label||"文件",
+  status:"已產生",
+  total:Number(amount||0),
+  createdAt:new Date().toISOString()
+ });
+ persist();
+}
+function deleteDocumentRecord(i){
+ if(confirm("確定刪除這筆文件紀錄？")){
+  state.documentRecords.splice(i,1);persist()
+ }
+}
+
 function renderOverview(){
  let search=($("search")?.value||"").toLowerCase(),sf=$("statusFilter")?.value||"",qf=$("quoterFilter")?.value||"";
- let qs=state.quotes.filter(q=>{let f=state.factories.find(x=>x.id===q.factoryCode)||{};let t=[q.no,q.factoryCode,f.name,q.quoter,q.category,q.planName].join(" ").toLowerCase();return(!search||t.includes(search))&&(!sf||q.status===sf)&&(!qf||q.quoter===qf)});
+ let quoteRows=state.quotes.map((q,i)=>({...q,_kind:"quote",_index:i}));
+ let docRows=(state.documentRecords||[]).map((q,i)=>({...q,_kind:"document",_index:i}));
+ let all=[...quoteRows,...docRows];
+ let rows=all.filter(q=>{
+   let f=state.factories.find(x=>x.id===q.factoryCode)||{};
+   let t=[q.no,q.factoryCode,f.name,q.factoryName,q.quoter,q.category,q.planName].join(" ").toLowerCase();
+   return(!search||t.includes(search))&&(!sf||q.status===sf)&&(!qf||q.quoter===qf)
+ });
+ let month=today().slice(0,7);
  $("kpis").innerHTML=[
-  ["全部報價",state.quotes.length],
-  ["本月報價",state.quotes.filter(q=>(q.date||"").startsWith(today().slice(0,7))).length],
-  ["報價總額",money(state.quotes.reduce((s,q)=>s+Number(q.total||0),0))],
+  ["全部紀錄",all.length],
+  ["本月紀錄",all.filter(q=>(q.date||"").startsWith(month)).length],
+  ["報價總額",money(
+    state.quotes.reduce((s,q)=>s+Number(q.total||0),0)
+    +(state.documentRecords||[])
+      .filter(d=>d.docType!=="project")
+      .reduce((s,d)=>s+Number(d.total||0),0)
+  )],
   ["已成交",state.quotes.filter(q=>q.status==="已成交").length]
  ].map(x=>`<div class="card"><small>${x[0]}</small><b>${x[1]}</b></div>`).join("");
- $("quoteRows").innerHTML=[...qs].reverse().map(q=>{let i=state.quotes.indexOf(q),f=state.factories.find(x=>x.id===q.factoryCode)||{};return `<tr>
- <td><b>${esc(q.no)}</b></td><td>${esc(q.date)}</td><td>${esc(q.factoryCode)}</td><td>${esc(f.name||q.factoryName)}</td>
- <td>${esc(q.quoter)}</td><td>${esc(q.category)}<br><span class="muted">${esc(q.planName)}</span></td><td>${badge(q.status)}</td>
- <td class="money"><b>${money(q.total)}</b></td>
- <td><div class="actions"><button class="btn small" onclick="openQuote(${i})">編輯</button><button class="btn small" onclick="duplicateQuote(${i})">複製</button><button class="btn small" onclick="exportQuoteExcel(${i})">下載 Excel</button><button class="btn small danger" onclick="deleteQuote(${i})">刪除</button></div></td>
- </tr>`}).join("")||`<tr><td colspan="9" class="empty">尚未建立報價</td></tr>`;
+ $("quoteRows").innerHTML=[...rows].sort((a,b)=>(b.createdAt||b.date||"").localeCompare(a.createdAt||a.date||"")).map(q=>{
+   let f=state.factories.find(x=>x.id===q.factoryCode)||{};
+   if(q._kind==="document"){
+     return `<tr>
+      <td><b>${esc(q.no)}</b><br><span class="badge green">文件</span></td>
+      <td>${esc(q.date)}</td><td>${esc(q.factoryCode)}</td><td>${esc(f.name||q.factoryName)}</td>
+      <td>${esc(q.quoter||"")}</td>
+      <td>${esc(q.category)}<br><span class="muted">${esc(q.planName)}</span></td>
+      <td><span class="badge green">已產生</span></td>
+      <td class="money"><b>${q.total?money(q.total):'<span class="muted">—</span>'}</b>${q.docType==="project"?'<br><span class="muted">不計入報價總額</span>':""}</td>
+      <td><div class="actions"><button class="btn small danger" onclick="deleteDocumentRecord(${q._index})">刪除紀錄</button></div></td>
+     </tr>`
+   }
+   let i=q._index;
+   return `<tr>
+    <td><b>${esc(q.no)}</b></td><td>${esc(q.date)}</td><td>${esc(q.factoryCode)}</td><td>${esc(f.name||q.factoryName)}</td>
+    <td>${esc(q.quoter)}</td><td>${esc(q.category)}<br><span class="muted">${esc(q.planName)}</span></td><td>${badge(q.status)}</td>
+    <td class="money"><b>${money(q.total)}</b></td>
+    <td><div class="actions"><button class="btn small" onclick="openQuote(${i})">編輯</button><button class="btn small" onclick="duplicateQuote(${i})">複製</button><button class="btn small" onclick="exportQuoteExcel(${i})">下載 Excel</button><button class="btn small danger" onclick="deleteQuote(${i})">刪除</button></div></td>
+   </tr>`
+ }).join("")||`<tr><td colspan="9" class="empty">尚未建立報價或文件</td></tr>`;
 }
 function renderFactories(){
  let s=($("factorySearch")?.value||"").toLowerCase();
@@ -1188,7 +1256,7 @@ function saveFactory(){
  if(old){let idx=state.factories.findIndex(f=>f.id===old);obj.history=state.factories[idx].history||[];obj.history.push({date:today(),action:"修改",detail:"工廠資料更新"});state.factories[idx]=obj}else{obj.history=[{date:today(),action:"新增",detail:"新增工廠"}];state.factories.push(obj)}
  persist();closeFactory()
 }
-function resetDemo(){if(confirm("確定清除本機建立的單項報價、整體費用報價與新增工廠，回到初始資料？")){state={factories:SEED_FACTORIES,quotes:[],overallQuotes:[],quoters:["Clair","蘇杭"],salesSpecialists:["Clair","蘇杭"]};persist();go("overview")}}
+function resetDemo(){if(confirm("確定清除本機建立的單項報價、整體費用報價與新增工廠，回到初始資料？")){state={factories:SEED_FACTORIES,quotes:[],overallQuotes:[],documentRecords:[],quoters:["Clair","蘇杭"],salesSpecialists:["Clair","蘇杭"]};persist();go("overview")}}
 function downloadBlob(blob,name){let a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
 const SS="http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 function xlsxCell(doc,addr){return [...doc.getElementsByTagNameNS(SS,"c")].find(c=>c.getAttribute("r")===addr)}
