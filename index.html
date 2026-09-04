@@ -1,5 +1,5 @@
 <!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>蘇杭開發｜業務報價系統｜登入版</title>
+<title>蘇杭開發｜業務報價系統｜登入修正版</title>
 <script>/*!
 
 JSZip v3.10.1 - A JavaScript class for generating and reading zip files
@@ -92,8 +92,17 @@ aside{background:#fbfcfb;border-right:1px solid var(--line);padding:18px 14px;po
   cursor:pointer;font-size:12px
 }
 
-</style><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-</head><body>
+
+.auth-pass-wrap{position:relative}
+.auth-pass-wrap input{padding-right:74px}
+.auth-showpass{
+  position:absolute;right:8px;top:50%;transform:translateY(-50%);
+  border:0;background:transparent;color:#4d665c;font-size:13px;font-weight:700;
+  cursor:pointer;padding:8px;border-radius:7px
+}
+.auth-showpass:hover{background:#eef3f0}
+
+</style></head><body>
 
 <div id="authGate">
   <div class="auth-card">
@@ -103,7 +112,10 @@ aside{background:#fbfcfb;border-right:1px solid var(--line);padding:18px 14px;po
     <label for="authEmail">Email</label>
     <input id="authEmail" type="email" autocomplete="username" placeholder="name@example.com">
     <label for="authPassword">密碼</label>
-    <input id="authPassword" type="password" autocomplete="current-password" placeholder="請輸入密碼">
+    <div class="auth-pass-wrap">
+      <input id="authPassword" type="password" autocomplete="current-password" placeholder="請輸入密碼">
+      <button id="authTogglePassword" class="auth-showpass" type="button">顯示</button>
+    </div>
     <button id="authLoginBtn" class="auth-login-btn" type="button">登入</button>
     <div id="authMsg"></div>
     <div class="auth-note">此系統限授權人員使用。若無法登入，請聯絡系統管理者。</div>
@@ -1079,20 +1091,14 @@ renderAll();
 (function(){
   const SUPABASE_URL = 'https://hyuovvtcenkxrvqfaahy.supabase.co';
   const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_ySEVbj_RCRviGc9cJw5sUA_EbukHswL';
-
-  if (!window.supabase) {
-    console.error("Supabase JS 載入失敗");
-    return;
-  }
-
-  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
-  window.suhangSupabase = sb;
+  const STORAGE_KEY = "suhang_supabase_session";
 
   const gate = document.getElementById("authGate");
   const emailEl = document.getElementById("authEmail");
   const passEl = document.getElementById("authPassword");
   const msgEl = document.getElementById("authMsg");
   const loginBtn = document.getElementById("authLoginBtn");
+  const toggleBtn = document.getElementById("authTogglePassword");
   const userbar = document.getElementById("authUserbar");
   const userEmail = document.getElementById("authUserEmail");
   const logoutBtn = document.getElementById("authLogoutBtn");
@@ -1110,6 +1116,42 @@ renderAll();
     passEl.value = "";
   }
 
+  function saveSession(data) {
+    const session = {
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+      expires_at: Date.now() + ((data.expires_in || 3600) * 1000),
+      user: data.user || null
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+    return session;
+  }
+
+  function getSavedSession() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"); }
+    catch (_) { return null; }
+  }
+
+  function clearSession() {
+    localStorage.removeItem(STORAGE_KEY);
+  }
+
+  async function request(path, options={}) {
+    const headers = Object.assign({
+      "apikey": SUPABASE_PUBLISHABLE_KEY,
+      "Content-Type": "application/json"
+    }, options.headers || {});
+    const res = await fetch(SUPABASE_URL + path, Object.assign({}, options, {headers}));
+    let data = {};
+    try { data = await res.json(); } catch (_) {}
+    if (!res.ok) {
+      const err = new Error(data.msg || data.message || data.error_description || "Request failed");
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
   async function login() {
     const email = emailEl.value.trim();
     const password = passEl.value;
@@ -1124,41 +1166,75 @@ renderAll();
     loginBtn.textContent = "登入中…";
 
     try {
-      const { data, error } = await sb.auth.signInWithPassword({ email, password });
-      if (error) throw error;
-      showLoggedIn(data.user);
+      const data = await request("/auth/v1/token?grant_type=password", {
+        method: "POST",
+        body: JSON.stringify({email, password})
+      });
+      const session = saveSession(data);
+      showLoggedIn(session.user);
     } catch (err) {
       console.error(err);
-      msgEl.textContent = "登入失敗，請確認 Email 與密碼是否正確。";
+      if (err.status === 400) msgEl.textContent = "登入失敗，請確認 Email 與密碼是否正確。";
+      else if (err.status === 429) msgEl.textContent = "嘗試次數過多，請稍後再試。";
+      else msgEl.textContent = "登入服務連線失敗，請稍後再試。";
     } finally {
       loginBtn.disabled = false;
       loginBtn.textContent = "登入";
     }
   }
 
-  async function logout() {
-    await sb.auth.signOut();
+  async function restoreSession() {
+    const session = getSavedSession();
+    if (!session?.access_token) {
+      showLoggedOut();
+      return;
+    }
+
+    try {
+      const user = await request("/auth/v1/user", {
+        method: "GET",
+        headers: {"Authorization": "Bearer " + session.access_token}
+      });
+      session.user = user;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+      showLoggedIn(user);
+    } catch (_) {
+      clearSession();
+      showLoggedOut();
+    }
+  }
+
+  function logout() {
+    clearSession();
     showLoggedOut();
   }
 
-  loginBtn.addEventListener("click", login);
-  logoutBtn.addEventListener("click", logout);
+  loginBtn.addEventListener("click", function(e) {
+    e.preventDefault();
+    login();
+  });
+  logoutBtn.addEventListener("click", function(e) {
+    e.preventDefault();
+    logout();
+  });
+  toggleBtn.addEventListener("click", function(e) {
+    e.preventDefault();
+    const showing = passEl.type === "text";
+    passEl.type = showing ? "password" : "text";
+    toggleBtn.textContent = showing ? "顯示" : "隱藏";
+    passEl.focus();
+  });
 
   [emailEl, passEl].forEach(el => {
-    el.addEventListener("keydown", e => {
-      if (e.key === "Enter") login();
+    el.addEventListener("keydown", function(e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        login();
+      }
     });
   });
 
-  sb.auth.onAuthStateChange((_event, session) => {
-    if (session?.user) showLoggedIn(session.user);
-    else showLoggedOut();
-  });
-
-  sb.auth.getSession().then(({ data }) => {
-    if (data?.session?.user) showLoggedIn(data.session.user);
-    else showLoggedOut();
-  });
+  restoreSession();
 })();
 </script>
 
