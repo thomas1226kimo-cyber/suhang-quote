@@ -1,5 +1,5 @@
 <!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>蘇杭開發｜業務報價系統｜多人共用版</title>
+<title>蘇杭開發｜業務報價系統｜完整多人共用版</title>
 <script>/*!
 
 JSZip v3.10.1 - A JavaScript class for generating and reading zip files
@@ -122,7 +122,7 @@ aside{background:#fbfcfb;border-right:1px solid var(--line);padding:18px 14px;po
   </div>
 </div>
 <div id="authUserbar" class="auth-userbar">
-  <span id="cloudSyncStatus" style="color:#74817b">共用資料待同步</span><span id="authUserEmail" class="auth-user-email"></span>
+  <span id="cloudSyncStatus" style="color:#74817b">全部資料待同步</span><span id="authUserEmail" class="auth-user-email"></span>
   <button id="authLogoutBtn" class="auth-logout-btn" type="button">登出</button>
 </div>
 
@@ -213,7 +213,8 @@ aside{background:#fbfcfb;border-right:1px solid var(--line);padding:18px 14px;po
    <div id="salesManageList" style="margin-top:14px"></div>
   </div>
  </div>
- <div class="notice" style="margin-top:14px">
+ <div class="notice" style="margin-top:14px">工廠資料、報價人、業務專員、單項報價與整體費用報價皆會同步至 Supabase，登入不同電腦可共用同一份資料。</div>
+<div class="notice" style="margin-top:14px">
   修改人員名稱後，之後新建立的報價會使用新名稱；既有已儲存報價保留當時的人員名稱，避免歷史紀錄被改掉。
  </div>
 </section>
@@ -425,9 +426,9 @@ async function cloudRequest(path,options={}){
   return data;
 }
 async function loadSharedState(){
-  cloudStatus("讀取共用資料…");
+  cloudStatus("讀取全部共用資料…");
   try{
-    const rows=await cloudRequest("/rest/v1/app_shared_state?id=eq.main&select=id,factories,quoters,sales_specialists,updated_at",{
+    const rows=await cloudRequest("/rest/v1/app_shared_state?id=eq.main&select=id,factories,quoters,sales_specialists,quotes,overall_quotes,updated_at",{
       method:"GET"
     });
     if(Array.isArray(rows)&&rows.length){
@@ -435,19 +436,21 @@ async function loadSharedState(){
       if(Array.isArray(row.factories))state.factories=row.factories;
       if(Array.isArray(row.quoters))state.quoters=row.quoters;
       if(Array.isArray(row.sales_specialists))state.salesSpecialists=row.sales_specialists;
+      if(Array.isArray(row.quotes))state.quotes=row.quotes;
+      if(Array.isArray(row.overall_quotes))state.overallQuotes=row.overall_quotes;
       safeStorageSet(JSON.stringify(state));
       cloudSharedReady=true;
       renderAll();
-      cloudStatus("共用資料已同步");
+      cloudStatus("全部資料已同步");
     }else{
       // First authenticated user initializes shared factory/staff data from current local state.
       await saveSharedState(true);
       cloudSharedReady=true;
-      cloudStatus("共用資料已建立");
+      cloudStatus("全部資料已建立");
     }
   }catch(e){
     console.error("讀取共用資料失敗",e);
-    cloudStatus("共用資料同步失敗",true);
+    cloudStatus("全部資料同步失敗",true);
   }
 }
 async function saveSharedState(force=false){
@@ -459,6 +462,8 @@ async function saveSharedState(force=false){
     factories:Array.isArray(state.factories)?state.factories:[],
     quoters:Array.isArray(state.quoters)?state.quoters:[],
     sales_specialists:Array.isArray(state.salesSpecialists)?state.salesSpecialists:[],
+    quotes:Array.isArray(state.quotes)?state.quotes:[],
+    overall_quotes:Array.isArray(state.overallQuotes)?state.overallQuotes:[],
     updated_at:new Date().toISOString(),
     updated_by:session.user?.id||null
   };
@@ -469,10 +474,10 @@ async function saveSharedState(force=false){
       headers:{"Prefer":"resolution=merge-duplicates,return=minimal"},
       body:JSON.stringify(payload)
     });
-    cloudStatus("共用資料已同步");
+    cloudStatus("全部資料已同步");
   }catch(e){
     console.error("儲存共用資料失敗",e);
-    cloudStatus("共用資料同步失敗",true);
+    cloudStatus("全部資料同步失敗",true);
   }
 }
 function scheduleSharedSync(){
@@ -1178,7 +1183,7 @@ window.addEventListener("suhang-auth-ready",function(){
 });
 window.addEventListener("suhang-auth-logout",function(){
   cloudSharedReady=false;
-  cloudStatus("共用資料待登入");
+  cloudStatus("全部資料待登入");
 });
 </script>
 <script>
