@@ -233,7 +233,7 @@ aside{background:#fbfcfb;border-right:1px solid var(--line);padding:18px 14px;po
  <div class="notice"><b>文件建立日期</b>會使用產出當天；工廠名稱、負責人、統編、地址、電話、地號、面積等資料由工廠主檔帶入。契約金額與專案參考費用可在輸出前修改。</div>
  <div class="planGrid">
   <div class="plan"><div class="cat">契約</div><h3>特定工廠登記委託契約書</h3><div class="amount">預設 $100,000</div><div class="muted">預設付款：50%／30%／20%（可調整）</div><ul><li>套入委託人資料</li><li>套入建立日期</li><li>金額與三期比例皆可修改</li></ul><div class="planfoot"><span class="muted">輸出 .docx</span><button class="btn primary small" onclick="openDoc('specific')">產生 Word</button></div></div>
-  <div class="plan"><div class="cat">契約｜新增母版</div><h3>特定工廠登記委託契約書（20萬版）</h3><div class="amount">預設 $200,000</div><div class="muted">預設付款：50%／30%／20%（可調整）</div><ul><li>套入委託人、統編、負責人、地址與電話</li><li>可帶入業務專員與建立日期</li><li>契約金額與三期金額可修改</li></ul><div class="planfoot"><span class="muted">輸出原母版 .docx</span><button class="btn primary small" onclick="openDoc('specific200')">產生 Word</button></div></div>
+  <div class="plan"><div class="cat">契約｜新增母版</div><h3>納管到特登委託契約書</h3><div class="amount">預設 $200,000</div><div class="muted">預設付款：50%／30%／20%（可調整）</div><ul><li>套入委託人、統編、負責人、地址與電話</li><li>可帶入業務專員與建立日期</li><li>契約金額與三期金額可修改</li></ul><div class="planfoot"><span class="muted">輸出原母版 .docx</span><button class="btn primary small" onclick="openDoc('specific200')">產生 Word</button></div></div>
   <div class="plan"><div class="cat">契約</div><h3>土地變更委任契約書</h3><div class="amount">預設 $2,200,000</div><div class="muted">預設付款：30%／30%／40%（可調整）</div><ul><li>套入地號與廠地面積</li><li>套入委託人資料</li><li>金額與三期比例皆可修改</li></ul><div class="planfoot"><span class="muted">輸出 .docx</span><button class="btn primary small" onclick="openDoc('land')">產生 Word</button></div></div>
   <div class="plan"><div class="cat">專案評估</div><h3>特登專案整體執行經費預估表</h3><div class="amount">由整體費用報價自動彙整</div><div class="muted">可帶入已完成的單項報價，再輸出原 Word 母版</div><ul><li>建築師、消防、廢清、搭排、污水等自動彙整</li><li>工廠面積、地址、建立日期自動帶入</li><li>業務仍可修改本案金額</li></ul><div class="planfoot"><span class="muted">整體報價 → Word</span><button class="btn primary small" onclick="go('overall')">前往整體費用報價</button></div></div>
  </div>
@@ -698,7 +698,7 @@ function openDoc(type){
   $("docExtra").innerHTML=renderPaymentEditor("specific",100000);updatePaymentCheck();
   $("docNotice").textContent="會套入委託人名稱、統編、負責人、地址、電話、契約金額與文件建立日期。";
  }else if(type==="specific200"){
-  $("docTitle").textContent="特定工廠登記委託契約書（20萬版）";
+  $("docTitle").textContent="納管到特登委託契約書";
   $("docExtra").innerHTML=renderPaymentEditor("specific200",200000);updatePaymentCheck();
   $("docNotice").textContent="使用新增的工廠改善計畫特登合約母版；會套入工廠名稱、統編、負責人、地址、電話、業務專員、契約金額與建立日期。";
  }else if(type==="land"){
@@ -955,7 +955,7 @@ function pullExistingQuotes(){
  if(setOverallRowFromQuote("water",drainQ,drainQ?quoteLineAmount(drainQ.q,["水質檢測","驗水質"]):0))count++;
  e=latestFactoryQuote(code,q=>q.category==="廢污水"&&(q.planName||"").includes("污水處理設施"));if(setOverallRowFromQuote("sewage",e,e?.q.subtotal))count++;
  e=latestFactoryQuote(code,q=>q.category==="廢污水"&&(q.planName||"").includes("抽水肥"));if(setOverallRowFromQuote("pump",e,e?.q.subtotal))count++;
- e=latestFactoryQuote(code,q=>q.category==="特登"||(q.planName||"").includes("特登"));if(setOverallRowFromQuote("specific",e,e?.q.subtotal))count++;
+ e=latestFactoryQuote(code,q=>q.category==="特登");if(setOverallRowFromQuote("specific",e,e?.q.subtotal))count++;
  calcOverall();
  alert(count?`已帶入 ${count} 個已有單項報價的費用；其餘仍保留目前參考值。`:"這間工廠目前還沒有可帶入的單項報價，先保留專案母版參考價。")
 }
