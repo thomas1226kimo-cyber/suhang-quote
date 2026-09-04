@@ -1,5 +1,5 @@
 <!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>蘇杭開發｜業務報價系統｜登入修正版</title>
+<title>蘇杭開發｜業務報價系統｜多人共用版</title>
 <script>/*!
 
 JSZip v3.10.1 - A JavaScript class for generating and reading zip files
@@ -122,7 +122,7 @@ aside{background:#fbfcfb;border-right:1px solid var(--line);padding:18px 14px;po
   </div>
 </div>
 <div id="authUserbar" class="auth-userbar">
-  <span id="authUserEmail" class="auth-user-email"></span>
+  <span id="cloudSyncStatus" style="color:#74817b">共用資料待同步</span><span id="authUserEmail" class="auth-user-email"></span>
   <button id="authLogoutBtn" class="auth-logout-btn" type="button">登出</button>
 </div>
 
@@ -394,7 +394,94 @@ function displayTemplateName(name){
 }
 const esc=s=>String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 const today=()=>new Date().toISOString().slice(0,10);
-function persist(){safeStorageSet(JSON.stringify(state));renderAll()}
+
+let cloudSharedReady=false;
+let cloudSyncTimer=null;
+
+function getSupabaseSession(){
+  try{return JSON.parse(localStorage.getItem("suhang_supabase_session")||"null")}
+  catch(e){return null}
+}
+function cloudStatus(text,isError=false){
+  let el=document.getElementById("cloudSyncStatus");
+  if(el){el.textContent=text;el.style.color=isError?"#b33a3a":"#74817b"}
+}
+async function cloudRequest(path,options={}){
+  const session=getSupabaseSession();
+  if(!session?.access_token)throw new Error("尚未登入");
+  const headers=Object.assign({
+    "apikey":"sb_publishable_ySEVbj_RCRviGc9cJw5sUA_EbukHswL",
+    "Authorization":"Bearer "+session.access_token,
+    "Content-Type":"application/json"
+  },options.headers||{});
+  const res=await fetch("https://hyuovvtcenkxrvqfaahy.supabase.co" + path,Object.assign({},options,{headers}));
+  let data=null;
+  const text=await res.text();
+  if(text){try{data=JSON.parse(text)}catch(e){data=text}}
+  if(!res.ok){
+    const err=new Error((data&&data.message)||("HTTP "+res.status));
+    err.status=res.status;throw err;
+  }
+  return data;
+}
+async function loadSharedState(){
+  cloudStatus("讀取共用資料…");
+  try{
+    const rows=await cloudRequest("/rest/v1/app_shared_state?id=eq.main&select=id,factories,quoters,sales_specialists,updated_at",{
+      method:"GET"
+    });
+    if(Array.isArray(rows)&&rows.length){
+      const row=rows[0];
+      if(Array.isArray(row.factories))state.factories=row.factories;
+      if(Array.isArray(row.quoters))state.quoters=row.quoters;
+      if(Array.isArray(row.sales_specialists))state.salesSpecialists=row.sales_specialists;
+      safeStorageSet(JSON.stringify(state));
+      cloudSharedReady=true;
+      renderAll();
+      cloudStatus("共用資料已同步");
+    }else{
+      // First authenticated user initializes shared factory/staff data from current local state.
+      await saveSharedState(true);
+      cloudSharedReady=true;
+      cloudStatus("共用資料已建立");
+    }
+  }catch(e){
+    console.error("讀取共用資料失敗",e);
+    cloudStatus("共用資料同步失敗",true);
+  }
+}
+async function saveSharedState(force=false){
+  if(!force&&!cloudSharedReady)return;
+  const session=getSupabaseSession();
+  if(!session?.access_token)return;
+  const payload={
+    id:"main",
+    factories:Array.isArray(state.factories)?state.factories:[],
+    quoters:Array.isArray(state.quoters)?state.quoters:[],
+    sales_specialists:Array.isArray(state.salesSpecialists)?state.salesSpecialists:[],
+    updated_at:new Date().toISOString(),
+    updated_by:session.user?.id||null
+  };
+  cloudStatus("同步中…");
+  try{
+    await cloudRequest("/rest/v1/app_shared_state?on_conflict=id",{
+      method:"POST",
+      headers:{"Prefer":"resolution=merge-duplicates,return=minimal"},
+      body:JSON.stringify(payload)
+    });
+    cloudStatus("共用資料已同步");
+  }catch(e){
+    console.error("儲存共用資料失敗",e);
+    cloudStatus("共用資料同步失敗",true);
+  }
+}
+function scheduleSharedSync(){
+  if(!cloudSharedReady)return;
+  clearTimeout(cloudSyncTimer);
+  cloudSyncTimer=setTimeout(()=>saveSharedState(false),250);
+}
+function persist(){safeStorageSet(JSON.stringify(state));renderAll();scheduleSharedSync()}
+
 function go(id){document.querySelectorAll(".nav").forEach(b=>b.classList.toggle("active",b.dataset.page===id));document.querySelectorAll(".page").forEach(p=>p.classList.toggle("active",p.id===id));if(id==="overview")renderOverview();if(id==="overall")renderOverallPage();if(id==="factories")renderFactories();if(id==="plans")renderPlans();if(id==="staff")renderStaffSettings()}
 document.querySelectorAll(".nav[data-page]").forEach(b=>b.onclick=()=>go(b.dataset.page));
 function badge(v){let c=v==="已成交"?"green":v==="取消"?"red":v==="待確認"?"gold":"gray";return `<span class="badge ${c}">${esc(v)}</span>`}
@@ -1086,6 +1173,13 @@ async function exportQuoteExcel(i){
  let blob=await zip.generateAsync({type:"blob",mimeType:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});downloadBlob(blob,`${fac.name||q.factoryCode}-${q.category}-${q.no}.xlsx`)
 }
 renderAll();
+window.addEventListener("suhang-auth-ready",function(){
+  loadSharedState();
+});
+window.addEventListener("suhang-auth-logout",function(){
+  cloudSharedReady=false;
+  cloudStatus("共用資料待登入");
+});
 </script>
 <script>
 (function(){
@@ -1107,6 +1201,9 @@ renderAll();
     gate.classList.add("hidden");
     userbar.classList.add("show");
     userEmail.textContent = user?.email || "";
+    setTimeout(function(){
+      window.dispatchEvent(new CustomEvent("suhang-auth-ready",{detail:{user:user||null}}));
+    },0);
   }
 
   function showLoggedOut() {
@@ -1114,6 +1211,7 @@ renderAll();
     userbar.classList.remove("show");
     userEmail.textContent = "";
     passEl.value = "";
+    window.dispatchEvent(new CustomEvent("suhang-auth-logout"));
   }
 
   function saveSession(data) {
