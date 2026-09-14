@@ -385,6 +385,7 @@ aside{background:#fbfcfb;border-right:1px solid var(--line);padding:18px 14px;po
    <div class="field"><label>工廠編號</label><input id="dFactoryCode" list="factoryCodes" oninput="docFactoryByCode()"></div>
    <div class="field"><label>工廠名稱</label><input id="dFactoryName" list="factoryNames" oninput="docFactoryByName()"></div>
    <div class="field"><label>文件建立日期</label><input id="dDate" type="date" readonly></div>
+   <div class="field"><label>報價人</label><input id="dQuoter" list="quoterList" placeholder="選擇報價人"></div>
    <div class="field"><label>負責人</label><input id="dBoss" readonly></div>
    <div class="field"><label>統編</label><input id="dTax" readonly></div>
    <div class="field"><label>電話</label><input id="dPhone" readonly></div>
@@ -696,7 +697,8 @@ function docFactoryByCode(){let f=state.factories.find(x=>x.id===$("dFactoryCode
 function docFactoryByName(){let f=state.factories.find(x=>x.name===$("dFactoryName").value.trim());if(f)docFactoryFill(f)}
 function openDoc(type,recordIndex=null){
  documentEditIndex=Number.isInteger(recordIndex)?recordIndex:null;
- $("docType").value=type;$("dDate").value=today();
+ fillQuoters();
+ $("docType").value=type;$("dDate").value=today();$("dQuoter").value="";
  ["dFactoryCode","dFactoryName","dBoss","dTax","dPhone","dSiteArea","dBuildingArea","dZoning","dParcel","dAddress"].forEach(id=>$(id).value="");
  if(type==="specific"){
   $("docTitle").textContent="工廠改善計畫至特登合約書";
@@ -731,6 +733,7 @@ function openDoc(type,recordIndex=null){
    let rec=(state.documentRecords||[])[documentEditIndex];
    if(rec){
      $("dDate").value=rec.date||today();
+     $("dQuoter").value=rec.quoter||"";
      $("dFactoryCode").value=rec.factoryCode||"";
      $("dFactoryName").value=rec.factoryName||"";
      docFactoryByCode();
@@ -773,7 +776,7 @@ async function generateWord(){
  let type=$("docType").value,b64=DOCX_TEMPLATES[type];if(!b64)return alert("找不到 Word 母版");
 
  let zip=await JSZip.loadAsync(b64,{base64:true}),path="word/document.xml",xml=await zip.file(path).async("string"),doc=new DOMParser().parseFromString(xml,"application/xml");
- let date=$("dDate").value||today(),site=Number(fac.siteArea||0),building=Number(fac.buildingArea||0),sitePing=site?pingFromSqm(site):"",buildingPing=building?pingFromSqm(building):"";
+ let date=$("dDate").value||today(),quoter=String($("dQuoter")?.value||"").trim(),site=Number(fac.siteArea||0),building=Number(fac.buildingArea||0),sitePing=site?pingFromSqm(site):"",buildingPing=building?pingFromSqm(building):"";
  let recordMeta={paymentPcts:null,paymentAmounts:null,projectCosts:null};
  // client/factory common fields
  replaceWord(doc,"宗龍機械股份有限公司一廠",fac.name||"");
@@ -810,7 +813,7 @@ async function generateWord(){
   replaceWord(doc,"桃園市蘆竹區海湖里海湖東路292巷36號及33之1號",fac.address||"");
   replaceWord(doc,"(03)3544885",fac.phone||"");
   replaceWord(doc,"負責人: _______________________ (簽名)",`負責人: ${fac.boss||"_______________________"} (簽名)`);
-  if(fac.contact)replaceWord(doc,"承辦人:__________________",`承辦人:${fac.contact}`);
+  if(quoter)replaceWord(doc,"承辦人:__________________",`承辦人:${quoter}`);
 
   setWordParagraphTextByKeyword(doc,"中    華    民    國",rocDateText(date,true),0);
  }else if(type==="specific200"){
@@ -821,7 +824,7 @@ async function generateWord(){
   replaceWord(doc,"受託人:                          (以下簡稱乙方)","受託人:蘇杭開發顧問有限公司 (以下簡稱乙方)");
   replaceWord(doc,"五、代辦費用:新台幣         200000         (未含稅，稅金外加)",`五、代辦費用:新台幣 ${Math.round(amt)} (未含稅，稅金外加)`);
   replaceWord(doc,"負責人: _______________________ (簽名)",`負責人:${fac.boss||"_______________________"} (簽名)`);
-  if(fac.contact)replaceWord(doc,"承辦人:__________________",`承辦人:${fac.contact}`);
+  if(quoter)replaceWord(doc,"承辦人:__________________",`承辦人:${quoter}`);
   replaceWordRow(doc,"簽訂委託契約書",[["50%",pctText(p1)]]);
   replaceWordRow(doc,"執行改善計畫核定內容",[["30%",pctText(p2)]]);
   replaceWordRow(doc,"核發特定工廠登記證",[["20%",pctText(p3)]]);
@@ -886,6 +889,10 @@ async function generateWord(){
   replaceWord(doc,"（約 923.835 坪）",sitePing?`（約 ${sitePing} 坪）`:"");
   replaceWord(doc,"預估日期：115年9月3日（有效期限30天，至115/10/2）",`預估日期：${rocDateParts(date).y}年${rocDateParts(date).m}月${rocDateParts(date).d}日（有效期限30天，至${rocSlash(addDays(date,29))}）`);
   replaceWord(doc,"828.85",buildingPing||"");replaceWord(doc,"729.025",buildingPing||"");
+  if(quoter){
+    replaceWord(doc,"專案負責人：蘇杭",`專案負責人：${quoter}`);
+    replaceWord(doc,"專案負責人:蘇杭",`專案負責人:${quoter}`);
+  }
   replaceWord(doc,"建築師簽證預估115,000元",`建築師簽證預估${fmtInt($("costArchitect").value)}元`);
   replaceWord(doc,"廢清書預估30,000元(需要才寫)",`廢清書預估${fmtInt($("costWaste").value)}元(需要才寫)`);
   replaceWord(doc,"送審報價72,000元",`送審報價${fmtInt($("costFire").value)}元`);
@@ -904,7 +911,7 @@ async function generateWord(){
  if(type==="specific"||type==="specific200"||type==="land")recordAmount=Number($("docAmount")?.value||0);
  else recordAmount=Number($("costTotal")?.value||0);
  downloadBlob(blob,`${fac.name}-${label}-${rocCompact(date)}.docx`);
- addDocumentRecord({type,label,fac,date,amount:recordAmount,paymentPcts:recordMeta.paymentPcts,paymentAmounts:recordMeta.paymentAmounts,projectCosts:recordMeta.projectCosts});
+ addDocumentRecord({type,label,fac,date,amount:recordAmount,quoter,paymentPcts:recordMeta.paymentPcts,paymentAmounts:recordMeta.paymentAmounts,projectCosts:recordMeta.projectCosts});
  closeDoc();go("overview")
  }catch(err){console.error("Word generation failed",err);alert("Word 產生失敗："+(err?.message||err)+"\n請把這個錯誤訊息截圖給我，我可以直接修正。")}
 }
@@ -1210,7 +1217,7 @@ function documentRecordNo(){
 function currentLoginEmail(){
  try{return JSON.parse(localStorage.getItem("suhang_supabase_session")||"null")?.user?.email||""}catch(e){return ""}
 }
-function addDocumentRecord({type,label,fac,date,amount=0,paymentPcts=null,paymentAmounts=null,projectCosts=null}){
+function addDocumentRecord({type,label,fac,date,amount=0,quoter="",paymentPcts=null,paymentAmounts=null,projectCosts=null}){
  if(!Array.isArray(state.documentRecords))state.documentRecords=[];
  let existing=documentEditIndex!==null?state.documentRecords[documentEditIndex]:null;
  let rec={
@@ -1220,7 +1227,7 @@ function addDocumentRecord({type,label,fac,date,amount=0,paymentPcts=null,paymen
   date:date||today(),
   factoryCode:fac?.id||"",
   factoryName:fac?.name||"",
-  quoter:currentLoginEmail()||fac?.contact||"",
+  quoter:String(quoter||"").trim(),
   category:"文件套用",
   planName:label||"文件",
   status:"已產生",
