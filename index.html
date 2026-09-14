@@ -372,7 +372,7 @@ aside{background:#fbfcfb;border-right:1px solid var(--line);padding:18px 14px;po
    <div class="sum"><div class="sumline"><span>未稅</span><b id="sumSub">$0</b></div><div class="sumline"><span>營業稅</span><b id="sumTax">$0</b></div><div class="sumline sumtotal"><span>含稅</span><span id="sumTotal">$0</span></div></div>
   </div>
   <div class="field" style="margin-top:12px"><label>備註</label><textarea id="qNote" rows="3"></textarea></div>
-  <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn" onclick="closeQuote()">取消</button><button class="btn" onclick="saveQuote(false)">儲存</button><button class="btn primary" onclick="saveQuote(true)">儲存並下載 Excel</button></div>
+  <div class="hint" style="margin-top:10px;text-align:right">只按「儲存」也沒關係，之後可從報價總覽再次開啟或下載 Excel。</div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px"><button class="btn" onclick="closeQuote()">取消</button><button class="btn" onclick="saveQuote(false)">儲存</button><button class="btn primary" onclick="saveQuote(true)">儲存並下載 Excel</button></div>
  </div>
 </div></div>
 
@@ -435,6 +435,7 @@ if(!Array.isArray(state.salesSpecialists)){
 if(!Array.isArray(state.documentRecords))state.documentRecords=[];
 let editIndex=null;
 let overallEditIndex=null;
+let documentEditIndex=null;
 const $=id=>document.getElementById(id);
 const money=n=>"$"+Math.round(Number(n||0)).toLocaleString("zh-TW");
 function displayTemplateName(name){
@@ -693,7 +694,8 @@ function docFactoryFill(f){
 }
 function docFactoryByCode(){let f=state.factories.find(x=>x.id===$("dFactoryCode").value.trim());if(f)docFactoryFill(f)}
 function docFactoryByName(){let f=state.factories.find(x=>x.name===$("dFactoryName").value.trim());if(f)docFactoryFill(f)}
-function openDoc(type){
+function openDoc(type,recordIndex=null){
+ documentEditIndex=Number.isInteger(recordIndex)?recordIndex:null;
  $("docType").value=type;$("dDate").value=today();
  ["dFactoryCode","dFactoryName","dBoss","dTax","dPhone","dSiteArea","dBuildingArea","dZoning","dParcel","dAddress"].forEach(id=>$(id).value="");
  if(type==="specific"){
@@ -707,7 +709,7 @@ function openDoc(type){
  }else if(type==="land"){
   $("docTitle").textContent="土地變更合約書";
   $("docExtra").innerHTML=renderPaymentEditor("land",2200000);updatePaymentCheck();
-  $("docNotice").textContent="使用最新版土地變更母版；會套入委任人、地號、廠地面積、坪數、使用分區、負責人、統編、地址、電話、契約金額、三期付款與建立日期。";
+  $("docNotice").textContent="使用最新版土地變更母版；會套入委任人、地號、廠地面積、坪數、使用分區、負責人、統編、地址、電話、契約金額、三期付款與建立日期；未填欄位保持空白。";
  }else{
   $("docTitle").textContent="特登專案整體執行經費預估表";
   $("docExtra").innerHTML=`<div class="formgrid">
@@ -721,14 +723,45 @@ function openDoc(type){
    <div class="field"><label>抽水肥</label><input id="costPump" type="number" value="35000"></div>
    <div class="field"><label>總體預估</label><input id="costTotal" type="number" value="630000"></div>
   </div>`;
-  $("docNotice").textContent="專案經費表會套入工廠名稱、廠地面積、建物樓地板面積、工廠地址、建立日期與上方參考費用。";
+  $("docNotice").textContent="專案經費表會套入工廠名稱、廠地面積、建物樓地板面積、工廠地址、建立日期與上方參考費用；未填欄位保持空白。";
+ }
+
+ // 已產生過的文件可從總覽重新開啟，再次下載 Word。
+ if(documentEditIndex!==null){
+   let rec=(state.documentRecords||[])[documentEditIndex];
+   if(rec){
+     $("dDate").value=rec.date||today();
+     $("dFactoryCode").value=rec.factoryCode||"";
+     $("dFactoryName").value=rec.factoryName||"";
+     docFactoryByCode();
+
+     if($("docAmount")){
+       $("docAmount").value=Number(rec.total||0);
+       let pcts=Array.isArray(rec.paymentPcts)&&rec.paymentPcts.length===3?rec.paymentPcts:paymentDefaults(type);
+       let amts=Array.isArray(rec.paymentAmounts)&&rec.paymentAmounts.length===3
+         ?rec.paymentAmounts
+         :pcts.map(x=>Math.round(Number(rec.total||0)*Number(x||0)/100));
+       [1,2,3].forEach((n,idx)=>{
+         if($("stage"+n+"Pct"))$("stage"+n+"Pct").value=Number(pcts[idx]||0);
+         if($("stage"+n+"Amt"))$("stage"+n+"Amt").value=Number(amts[idx]||0);
+       });
+       updatePaymentCheck();
+     }
+
+     if(rec.projectCosts){
+       const ids={architect:"costArchitect",waste:"costWaste",fire:"costFire",drain:"costDrain",engineer:"costEngineer",water:"costWater",sewage:"costSewage",pump:"costPump",total:"costTotal"};
+       Object.entries(ids).forEach(([k,id])=>{if($(id)&&rec.projectCosts[k]!==undefined)$(id).value=rec.projectCosts[k]});
+     }else if(type==="project"&&$("costTotal")&&rec.total!==undefined){
+       $("costTotal").value=Number(rec.total||0);
+     }
+   }
  }
  $("docModal").classList.add("open")
 }
 function closeDoc(){$("docModal").classList.remove("open")}
 function fmtInt(n){return Math.round(Number(n||0)).toLocaleString("en-US")}
 function parcelContractText(parcel){
- let s=(parcel||"").trim();if(!s)return "________________地號內";
+ let s=(parcel||"").trim();if(!s)return "";
  return /地號$/.test(s)?s+"內":s+"地號內";
 }
 async function generateWord(){
@@ -738,9 +771,10 @@ async function generateWord(){
  let fac=state.factories.find(x=>x.id===$("dFactoryCode").value.trim());
  if(!fac)return alert("請先選擇工廠");
  let type=$("docType").value,b64=DOCX_TEMPLATES[type];if(!b64)return alert("找不到 Word 母版");
- if((type==="land"||type==="project")&&!fac.siteArea)return alert("這份文件需要廠地面積，請先到工廠資料填寫");
+
  let zip=await JSZip.loadAsync(b64,{base64:true}),path="word/document.xml",xml=await zip.file(path).async("string"),doc=new DOMParser().parseFromString(xml,"application/xml");
- let date=$("dDate").value||today(),site=Number(fac.siteArea||0),building=Number(fac.buildingArea||0),sitePing=pingFromSqm(site),buildingPing=pingFromSqm(building);
+ let date=$("dDate").value||today(),site=Number(fac.siteArea||0),building=Number(fac.buildingArea||0),sitePing=site?pingFromSqm(site):"",buildingPing=building?pingFromSqm(building):"";
+ let recordMeta={paymentPcts:null,paymentAmounts:null,projectCosts:null};
  // client/factory common fields
  replaceWord(doc,"宗龍機械股份有限公司一廠",fac.name||"");
  replaceWord(doc,"徐朝堂",fac.boss||"");
@@ -755,6 +789,7 @@ async function generateWord(){
  if(type==="specific"){
   let pv=validatePayments();if(!pv)return;
   let amt=pv.total,[a1,a2,a3]=pv.amounts,[p1,p2,p3]=pv.pcts;
+  recordMeta.paymentPcts=[p1,p2,p3];recordMeta.paymentAmounts=[a1,a2,a3];
 
   // 新版「工廠改善計畫至特登」母版
   setWordParagraphTextByKeyword(doc,"委託人:",`委託人: ${fac.name||""}  (以下簡稱甲方)`,0);
@@ -781,6 +816,7 @@ async function generateWord(){
  }else if(type==="specific200"){
   let pv=validatePayments();if(!pv)return;
   let amt=pv.total,[a1,a2,a3]=pv.amounts,[p1,p2,p3]=pv.pcts;
+  recordMeta.paymentPcts=[p1,p2,p3];recordMeta.paymentAmounts=[a1,a2,a3];
   replaceWord(doc,"委託人:                          (以下簡稱甲方)",`委託人:${fac.name||""} (以下簡稱甲方)`);
   replaceWord(doc,"受託人:                          (以下簡稱乙方)","受託人:蘇杭開發顧問有限公司 (以下簡稱乙方)");
   replaceWord(doc,"五、代辦費用:新台幣         200000         (未含稅，稅金外加)",`五、代辦費用:新台幣 ${Math.round(amt)} (未含稅，稅金外加)`);
@@ -799,6 +835,7 @@ async function generateWord(){
  }else if(type==="land"){
   let pv=validatePayments();if(!pv)return;
   let amt=pv.total,[a1,a2,a3]=pv.amounts,[p1,p2,p3]=pv.pcts;
+  recordMeta.paymentPcts=[p1,p2,p3];recordMeta.paymentAmounts=[a1,a2,a3];
 
   // 新版土地變更母版：原始欄位為空白線，因此以段落/表格位置直接套入
   setWordParagraphTextByKeyword(
@@ -838,10 +875,17 @@ async function generateWord(){
 
   setWordParagraphTextByKeyword(doc,"中華民國",rocDateText(date,false),0);
  }else{
-  replaceWord(doc,"廠地面積：3054.00平方公尺",`廠地面積：${site?site.toFixed(2):""}平方公尺`);
-  replaceWord(doc,"（約 923.835 坪）",`（約 ${sitePing||""} 坪）`);
+  recordMeta.projectCosts={
+   architect:Number($("costArchitect")?.value||0),waste:Number($("costWaste")?.value||0),
+   fire:Number($("costFire")?.value||0),drain:Number($("costDrain")?.value||0),
+   engineer:Number($("costEngineer")?.value||0),water:Number($("costWater")?.value||0),
+   sewage:Number($("costSewage")?.value||0),pump:Number($("costPump")?.value||0),
+   total:Number($("costTotal")?.value||0)
+  };
+  replaceWord(doc,"廠地面積：3054.00平方公尺",`廠地面積：${site?site.toFixed(2):""}${site?"平方公尺":""}`);
+  replaceWord(doc,"（約 923.835 坪）",sitePing?`（約 ${sitePing} 坪）`:"");
   replaceWord(doc,"預估日期：115年9月3日（有效期限30天，至115/10/2）",`預估日期：${rocDateParts(date).y}年${rocDateParts(date).m}月${rocDateParts(date).d}日（有效期限30天，至${rocSlash(addDays(date,29))}）`);
-  replaceWord(doc,"828.85",buildingPing||"____");replaceWord(doc,"729.025",buildingPing||"____");
+  replaceWord(doc,"828.85",buildingPing||"");replaceWord(doc,"729.025",buildingPing||"");
   replaceWord(doc,"建築師簽證預估115,000元",`建築師簽證預估${fmtInt($("costArchitect").value)}元`);
   replaceWord(doc,"廢清書預估30,000元(需要才寫)",`廢清書預估${fmtInt($("costWaste").value)}元(需要才寫)`);
   replaceWord(doc,"送審報價72,000元",`送審報價${fmtInt($("costFire").value)}元`);
@@ -860,7 +904,7 @@ async function generateWord(){
  if(type==="specific"||type==="specific200"||type==="land")recordAmount=Number($("docAmount")?.value||0);
  else recordAmount=Number($("costTotal")?.value||0);
  downloadBlob(blob,`${fac.name}-${label}-${rocCompact(date)}.docx`);
- addDocumentRecord({type,label,fac,date,amount:recordAmount});
+ addDocumentRecord({type,label,fac,date,amount:recordAmount,paymentPcts:recordMeta.paymentPcts,paymentAmounts:recordMeta.paymentAmounts,projectCosts:recordMeta.projectCosts});
  closeDoc();go("overview")
  }catch(err){console.error("Word generation failed",err);alert("Word 產生失敗："+(err?.message||err)+"\n請把這個錯誤訊息截圖給我，我可以直接修正。")}
 }
@@ -1079,14 +1123,13 @@ async function generateOverallWord(i){
  try{
   let q=state.overallQuotes[i];if(!q)return alert("找不到整體費用報價");
   let fac=state.factories.find(x=>x.id===q.factoryCode)||q;
-  if(!fac.siteArea)return alert("這份專案經費表需要廠地面積，請先到工廠資料填寫");
   if(typeof JSZip==="undefined")return alert("Word 產出元件未載入");
   let zip=await JSZip.loadAsync(DOCX_TEMPLATES.project,{base64:true}),path="word/document.xml",xml=await zip.file(path).async("string"),doc=new DOMParser().parseFromString(xml,"application/xml");
-  let date=q.date||today(),site=Number(fac.siteArea||0),building=Number(fac.buildingArea||0),sitePing=pingFromSqm(site),buildingPing=pingFromSqm(building);
+  let date=q.date||today(),site=Number(fac.siteArea||0),building=Number(fac.buildingArea||0),sitePing=site?pingFromSqm(site):"",buildingPing=building?pingFromSqm(building):"";
   replaceWord(doc,"宗龍機械股份有限公司一廠",fac.name||q.factoryName||"");
   replaceWord(doc,"桃園市蘆竹區海湖里海湖東路292巷36號及33之1號",fac.address||q.address||"");
-  replaceWord(doc,"廠地面積：3054.00平方公尺",`廠地面積：${site?site.toFixed(2):""}平方公尺`);
-  replaceWord(doc,"（約 923.835 坪）",`（約 ${sitePing||""} 坪）`);
+  replaceWord(doc,"廠地面積：3054.00平方公尺",site?`廠地面積：${site.toFixed(2)}平方公尺`:"廠地面積：");
+  replaceWord(doc,"（約 923.835 坪）",sitePing?`（約 ${sitePing} 坪）`:"");
   replaceWord(doc,"預估日期：115年9月3日（有效期限30天，至115/10/2）",`預估日期：${rocDateParts(date).y}年${rocDateParts(date).m}月${rocDateParts(date).d}日（有效期限30天，至${rocSlash(addDays(date,29))}）`);
   replaceWord(doc,"828.85",buildingPing||"____");replaceWord(doc,"729.025",buildingPing||"____");
 
@@ -1167,10 +1210,11 @@ function documentRecordNo(){
 function currentLoginEmail(){
  try{return JSON.parse(localStorage.getItem("suhang_supabase_session")||"null")?.user?.email||""}catch(e){return ""}
 }
-function addDocumentRecord({type,label,fac,date,amount=0}){
+function addDocumentRecord({type,label,fac,date,amount=0,paymentPcts=null,paymentAmounts=null,projectCosts=null}){
  if(!Array.isArray(state.documentRecords))state.documentRecords=[];
- state.documentRecords.push({
-  no:documentRecordNo(),
+ let existing=documentEditIndex!==null?state.documentRecords[documentEditIndex]:null;
+ let rec={
+  no:existing?.no||documentRecordNo(),
   recordType:"document",
   docType:type,
   date:date||today(),
@@ -1181,14 +1225,26 @@ function addDocumentRecord({type,label,fac,date,amount=0}){
   planName:label||"文件",
   status:"已產生",
   total:Number(amount||0),
-  createdAt:new Date().toISOString()
- });
+  paymentPcts:Array.isArray(paymentPcts)?paymentPcts.map(Number):null,
+  paymentAmounts:Array.isArray(paymentAmounts)?paymentAmounts.map(Number):null,
+  projectCosts:projectCosts||null,
+  createdAt:existing?.createdAt||new Date().toISOString(),
+  updatedAt:new Date().toISOString()
+ };
+ if(documentEditIndex!==null&&state.documentRecords[documentEditIndex])state.documentRecords[documentEditIndex]=rec;
+ else state.documentRecords.push(rec);
+ documentEditIndex=null;
  persist();
 }
 function deleteDocumentRecord(i){
  if(confirm("確定刪除這筆文件紀錄？")){
   state.documentRecords.splice(i,1);persist()
  }
+}
+function openDocumentRecord(i){
+ let rec=(state.documentRecords||[])[i];
+ if(!rec)return alert("找不到這筆文件紀錄");
+ openDoc(rec.docType,i)
 }
 
 function renderOverview(){
@@ -1223,7 +1279,7 @@ function renderOverview(){
       <td>${esc(q.category)}<br><span class="muted">${esc(q.planName)}</span></td>
       <td><span class="badge green">已產生</span></td>
       <td class="money"><b>${q.total?money(q.total):'<span class="muted">—</span>'}</b>${q.docType==="project"?'<br><span class="muted">不計入報價總額</span>':""}</td>
-      <td><div class="actions"><button class="btn small danger" onclick="deleteDocumentRecord(${q._index})">刪除紀錄</button></div></td>
+      <td><div class="actions"><button class="btn small" onclick="openDocumentRecord(${q._index})">重新開啟</button><button class="btn small danger" onclick="deleteDocumentRecord(${q._index})">刪除紀錄</button></div></td>
      </tr>`
    }
    let i=q._index;
@@ -1302,7 +1358,17 @@ function openQuote(i=null,planIndex=null){
  $("qNo").value=q?.no||quoteNo();$("qDate").value=q?.date||today();$("qQuoter").value=q?.quoter||"";$("qStatus").value=q?.status||"草稿";
  $("qFactoryCode").value=q?.factoryCode||"";$("qFactoryName").value=q?.factoryName||"";$("qContact").value=q?.contact||"";$("qPhone").value=q?.phone||"";$("qSiteArea").value=q?.siteArea||"";$("qBuildingArea").value=q?.buildingArea||"";$("qEmployeeCount").value=q?.employeeCount??"";$("qZoning").value=q?.zoning||"";$("qTax").value=String(q?.taxRate??0.05);$("qNote").value=q?.note||"";
  if(q){let currentFactory=state.factories.find(x=>x.id===q.factoryCode);if(currentFactory)fillFactoryQuoteData(currentFactory)}
- if(q){$("qCategory").value=q.category;refreshPlanOptions(q.planName);$("qPlan").value=q.planIndex; $("qTemplate").value=displayTemplateName(q.template); $("qTemplate").dataset.actualTemplate=q.template; $("qItems").innerHTML=(q.items||[]).map(itemHTML).join(""); $("referenceSubtotal").textContent=money(REFERENCE_PLANS[q.planIndex]?.referenceSubtotal||0);calc()}
+ if(q){
+   let resolved=resolveQuoteReferencePlan(q),rp=resolved?.plan,ri=resolved?.index;
+   $("qCategory").value=rp?.category||q.category||categories()[0];
+   refreshPlanOptions(rp?.name||q.planName||"");
+   if(Number.isInteger(ri))$("qPlan").value=ri;
+   $("qTemplate").value=displayTemplateName(rp?.template||q.template);
+   $("qTemplate").dataset.actualTemplate=rp?.template||q.template||"";
+   $("qItems").innerHTML=(q.items||[]).map(itemHTML).join("");
+   $("referenceSubtotal").textContent=money(rp?.referenceSubtotal||0);
+   calc()
+ }
  else if(planIndex!==null){let p=REFERENCE_PLANS[planIndex];$("qCategory").value=p.category;refreshPlanOptions(p.name);$("qPlan").value=planIndex;loadReferencePlan()}
  else{$("qCategory").value=categories()[0];refreshPlanOptions()}
  $("quoteModal").classList.add("open")
@@ -1462,10 +1528,24 @@ function sheetContainsEquivalentText(allText,target){
  return normalizeBusinessText(allText).includes(t)
 }
 function resolveQuoteReferencePlan(q){
- let i=Number(q.planIndex),p=REFERENCE_PLANS[i];
- if(p&&p.name===q.planName&&p.template===q.template&&p.category===q.category)return {plan:p,index:i};
- let found=REFERENCE_PLANS.findIndex(x=>x.name===q.planName&&x.template===q.template&&x.category===q.category);
- return found>=0?{plan:REFERENCE_PLANS[found],index:found}:null
+ let i=Number(q?.planIndex),p=REFERENCE_PLANS[i];
+
+ // 1. 完整精準匹配
+ if(p&&p.name===q?.planName&&p.template===q?.template&&p.category===q?.category)return {plan:p,index:i};
+
+ // 2. 名稱 + 母版 + 分類
+ let found=REFERENCE_PLANS.findIndex(x=>x.name===q?.planName&&x.template===q?.template&&x.category===q?.category);
+ if(found>=0)return {plan:REFERENCE_PLANS[found],index:found};
+
+ // 3. 母版 + 分類（處理舊版方案名稱曾改名）
+ found=REFERENCE_PLANS.findIndex(x=>x.template===q?.template&&x.category===q?.category);
+ if(found>=0)return {plan:REFERENCE_PLANS[found],index:found};
+
+ // 4. 只用母版匹配（處理舊資料 category / planName 曾改名）
+ found=REFERENCE_PLANS.findIndex(x=>x.template===q?.template);
+ if(found>=0)return {plan:REFERENCE_PLANS[found],index:found};
+
+ return null
 }
 function validateQuotePlanBinding(q,map){
  let errors=[],resolved=resolveQuoteReferencePlan(q);
@@ -1598,8 +1678,8 @@ function validateGeneratedExcel({doc,stylesDoc,sharedStrings,map,q,fac,qa,layout
    if(expected&&!sameBusinessText(actual,expected))warnings.push(`${label}與系統資料不完全一致。`);
  });
 
- [["工廠名稱",qa.name],["聯絡人／業務專員",qa.contact],["電話",qa.phone],["統一編號",qa.tax],["地址",qa.address]].forEach(([label,v])=>{
-   if(v&&!sheetContainsEquivalentText(sign,v))warnings.push(`${label}未完整出現在簽章區。`);
+ [["工廠名稱",qa.name],["電話",qa.phone],["統一編號",qa.tax],["地址",qa.address]].forEach(([label,v])=>{
+   if(v&&!sheetContainsEquivalentText(sign,v))warnings.push(`${label}未完整出現在甲方簽章區。`);
  });
 
  if(q.note&&!sheetContainsEquivalentText(xlsxCellText(doc,noteAddr,sharedStrings),q.note))warnings.push("報價備註未完整帶入附記區。");
@@ -1704,7 +1784,6 @@ async function exportQuoteExcel(i){
 
   let sig=`甲    方：${qa.name||""}
 代 表 人：${fac.boss||""}
-聯 絡 人：${qa.contact||""}
 電    話：${qa.phone||""}
 統    編：${qa.tax||""}
 通訊地址：${qa.address||""}`;
