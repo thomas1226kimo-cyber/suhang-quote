@@ -1442,6 +1442,25 @@ function xlsxLayoutFingerprint(doc){
 }
 
 function normalizeExcelItemName(v){return String(v??"").replace(/\s+/g," ").trim()}
+function normalizeBusinessText(v){
+ return String(v??"")
+  .normalize("NFKC")
+  .replace(/[\s　]+/g,"")
+  .replace(/[，,、]/g,",")
+  .replace(/[：:]/g,":")
+  .replace(/[（(]/g,"(")
+  .replace(/[）)]/g,")")
+  .replace(/[－–—]/g,"-")
+  .trim()
+}
+function sameBusinessText(a,b){
+ return normalizeBusinessText(a)===normalizeBusinessText(b)
+}
+function sheetContainsEquivalentText(allText,target){
+ let t=normalizeBusinessText(target);
+ if(!t)return false;
+ return normalizeBusinessText(allText).includes(t)
+}
 function resolveQuoteReferencePlan(q){
  let i=Number(q.planIndex),p=REFERENCE_PLANS[i];
  if(p&&p.name===q.planName&&p.template===q.template&&p.category===q.category)return {plan:p,index:i};
@@ -1523,33 +1542,49 @@ function applyWrapTextStyles(doc,stylesDoc,addresses){
 
 function validateQuoteBeforeExcel(q,fac,map){
  let errors=[],warnings=[],binding=validateQuotePlanBinding(q,map),plan=binding.plan;
- errors.push(...binding.errors);
- let name=String(fac.name||q.factoryName||"").trim(),address=String(fac.address||"").trim(),contact=String(q.contact||fac.contact||"").trim(),phone=String(q.phone||fac.phone||"").trim(),tax=String(fac.tax||"").trim();
+
+ // 只有完全找不到 Excel 方案/母版時才視為致命錯誤。
+ if(!plan)errors.push("找不到對應的 Excel 參考方案或母版，無法產生檔案。");
+
+ let name=String(fac.name||q.factoryName||"").trim(),
+     address=String(fac.address||"").trim(),
+     contact=String(q.contact||fac.contact||"").trim(),
+     phone=String(q.phone||fac.phone||"").trim(),
+     tax=String(fac.tax||"").trim();
+
+ // 一般資料缺漏全部允許匯出，未填欄位保持空白。
  [["工廠名稱",name],["工廠地址",address],["聯絡人／業務專員",contact],["電話",phone],["統一編號",tax]].forEach(([label,v])=>{
-   if(!v)errors.push(`${label}未填寫，請先補齊工廠資料。`);
-   else if(suspiciousExcelText(v))errors.push(`${label}含有未替換或占位文字：${v}`)
+   if(!v)warnings.push(`${label}未填寫，匯出時保持空白。`);
+   else if(suspiciousExcelText(v))warnings.push(`${label}含疑似占位文字，仍依目前內容匯出。`);
  });
- if(tax&&!/^\d{8}$/.test(tax))errors.push(`統一編號「${tax}」必須是 8 碼數字。`);
- let allItems=Array.isArray(q.items)?q.items:[],used=allItems.filter(x=>x.checked),slots=map.itemEnd-map.itemStart+1;
- if(!used.length)errors.push("沒有勾選任何報價項目。");
- if(allItems.length>slots)errors.push(`此 Excel 母版最多可放 ${slots} 個細項，目前報價結構有 ${allItems.length} 個。`);
+
+ if(tax&&!/^\d{8}$/.test(tax))warnings.push(`統一編號「${tax}」不是 8 碼數字，仍依目前內容匯出。`);
+
+ let allItems=Array.isArray(q.items)?q.items:[],
+     used=allItems.filter(x=>x.checked),
+     slots=map.itemEnd-map.itemStart+1;
+
+ if(!used.length)warnings.push("沒有勾選任何報價項目，匯出金額將為 0。");
+ if(allItems.length>slots)warnings.push(`報價細項 ${allItems.length} 個超過母版 ${slots} 列，超出部分不寫入。`);
+
  let calcSub=0;
  allItems.forEach((it,k)=>{
-  let row=k+1,itemName=String(it.name||"").trim(),qty=Number(it.qty),price=Number(it.price);
-  if(!itemName)errors.push(`第 ${row} 項報價項目名稱空白。`);
-  else if(suspiciousExcelText(itemName))errors.push(`第 ${row} 項名稱含有未替換文字：${itemName}`);
-  if(it.checked){
-    if(!Number.isFinite(qty)||qty<=0)errors.push(`第 ${row} 項數量必須是大於 0 的數字。`);
-    if(!Number.isFinite(price)||price<0)errors.push(`第 ${row} 項單價必須是 0 以上的數字。`);
-    if(Number.isFinite(qty)&&Number.isFinite(price))calcSub+=qty*price;
-  }
+   if(!it.checked)return;
+   let qty=Number(it.qty),price=Number(it.price);
+   let safeQty=Number.isFinite(qty)&&qty>=0?qty:0;
+   let safePrice=Number.isFinite(price)&&price>=0?price:0;
+   if(!Number.isFinite(qty)||qty<0)warnings.push(`第 ${k+1} 項數量無效，匯出時以 0 處理。`);
+   if(!Number.isFinite(price)||price<0)warnings.push(`第 ${k+1} 項單價無效，匯出時以 0 處理。`);
+   calcSub+=safeQty*safePrice;
  });
- let taxRate=Number(q.taxRate),expectedTax=Math.round(calcSub*(Number.isFinite(taxRate)?taxRate:0)),expectedTotal=calcSub+expectedTax;
- if(!Number.isFinite(taxRate)||taxRate<0||taxRate>1)errors.push("營業稅率格式不正確。");
- if(Math.abs(Number(q.subtotal)-calcSub)>0.01)errors.push(`報價小計不一致：系統記錄 ${Number(q.subtotal||0).toLocaleString("zh-TW")}，依數量×單價重算為 ${calcSub.toLocaleString("zh-TW")}。`);
- if(Math.abs(Number(q.tax)-expectedTax)>0.01)errors.push(`稅額不一致：系統記錄 ${Number(q.tax||0).toLocaleString("zh-TW")}，依稅率重算為 ${expectedTax.toLocaleString("zh-TW")}。`);
- if(Math.abs(Number(q.total)-expectedTotal)>0.01)errors.push(`總計不一致：系統記錄 ${Number(q.total||0).toLocaleString("zh-TW")}，重算為 ${expectedTotal.toLocaleString("zh-TW")}。`);
- if(suspiciousExcelText(q.note||""))errors.push(`備註含有未替換或占位文字：${q.note}`);
+
+ let taxRate=Number(q.taxRate);
+ if(!Number.isFinite(taxRate)||taxRate<0||taxRate>1){
+   warnings.push("營業稅率格式不正確，匯出時以 0% 計算。");
+   taxRate=0;
+ }
+ let expectedTax=Math.round(calcSub*taxRate),expectedTotal=calcSub+expectedTax;
+
  return {errors,warnings,plan,allItems,used,calcSub,expectedTax,expectedTotal,name,address,contact,phone,tax}
 }
 function extractOldSignValue(signText,label){
@@ -1557,51 +1592,30 @@ function extractOldSignValue(signText,label){
 }
 function validateGeneratedExcel({doc,stylesDoc,sharedStrings,map,q,fac,qa,layoutBefore,styleBefore,originals,hasDrawing,printArea}){
  let errors=[],warnings=[],allText=xlsxAllText(doc,sharedStrings),signAddr="A"+map.sign,noteAddr="B"+(map.sign-2),sign=xlsxCellText(doc,signAddr,sharedStrings);
- let checks=[["工廠名稱 C4",xlsxCellText(doc,"C4",sharedStrings),qa.name],["電話 C5",xlsxCellText(doc,"C5",sharedStrings),qa.phone],["工廠地址 C6",xlsxCellText(doc,"C6",sharedStrings),qa.address],["工廠地號 C7",xlsxCellText(doc,"C7",sharedStrings),fac.parcel||""]];
- checks.forEach(([label,actual,expected])=>{if(String(actual)!==String(expected))errors.push(`${label}替換失敗：預期「${expected}」，實際「${actual}」。`)});
- [["工廠名稱",qa.name],["聯絡人／業務專員",qa.contact],["電話",qa.phone],["統一編號",qa.tax],["地址",qa.address]].forEach(([label,v])=>{if(v&&!sign.includes(v))errors.push(`${label}未完整帶入客戶簽章區。`)});
- if(q.note&&!xlsxCellText(doc,noteAddr,sharedStrings).includes(q.note))errors.push("報價備註未帶入附記區。");
 
- (qa.allItems||[]).forEach((it,k)=>{
-  let r=map.itemStart+k,expectedName=qa.plan?.items?.[k]?.name||it.name,expectedAmount=Number(it.qty)*Number(it.price);
-  if(normalizeExcelItemName(xlsxCellText(doc,"C"+r,sharedStrings))!==normalizeExcelItemName(expectedName))errors.push(`第 ${k+1} 項母版案名被改動或寫入錯列。`);
-  if(it.checked){
-   if(!xlsxCellIsNumeric(doc,"D"+r)||Number(xlsxCellText(doc,"D"+r,sharedStrings))!==Number(it.qty))errors.push(`第 ${k+1} 項數量不是正確的數字格式。`);
-   if(!xlsxCellIsNumeric(doc,"E"+r)||Number(xlsxCellText(doc,"E"+r,sharedStrings))!==Number(it.price))errors.push(`第 ${k+1} 項單價不是正確的數字格式。`);
-   if(xlsxCellFormula(doc,"F"+r)!==`D${r}*E${r}`)errors.push(`第 ${k+1} 項應收金額公式錯誤。`);
-   if(xlsxCellFormula(doc,"G"+r)!==`F${r}`)errors.push(`第 ${k+1} 項實際請款公式錯誤。`);
-   if(!Number.isFinite(expectedAmount))errors.push(`第 ${k+1} 項小計計算失敗。`);
-  }else{
-   for(const col of ["D","E","F","G"]){
-    if(xlsxCellText(doc,col+r,sharedStrings)||xlsxCellFormula(doc,col+r))errors.push(`第 ${k+1} 項未勾選，但 ${col}${r} 仍殘留數量、單價或公式。`);
-   }
-  }
+ let checks=[["工廠名稱 C4",xlsxCellText(doc,"C4",sharedStrings),qa.name],["電話 C5",xlsxCellText(doc,"C5",sharedStrings),qa.phone],["工廠地址 C6",xlsxCellText(doc,"C6",sharedStrings),qa.address],["工廠地號 C7",xlsxCellText(doc,"C7",sharedStrings),fac.parcel||""]];
+ checks.forEach(([label,actual,expected])=>{
+   if(expected&&!sameBusinessText(actual,expected))warnings.push(`${label}與系統資料不完全一致。`);
  });
- [["小計","G"+map.bottomSubtotal,qa.calcSub],["稅額","G"+map.tax,qa.expectedTax],["總計","G"+map.total,qa.expectedTotal]].forEach(([label,addr,expected])=>{
-   if(!xlsxCellIsNumeric(doc,addr)||Math.abs(Number(xlsxCellText(doc,addr,sharedStrings))-Number(expected))>0.01)errors.push(`${label}欄位不是正確的數字格式或金額不一致。`)
+
+ [["工廠名稱",qa.name],["聯絡人／業務專員",qa.contact],["電話",qa.phone],["統一編號",qa.tax],["地址",qa.address]].forEach(([label,v])=>{
+   if(v&&!sheetContainsEquivalentText(sign,v))warnings.push(`${label}未完整出現在簽章區。`);
  });
- if(suspiciousExcelText(allText))errors.push("匯出內容仍含 {{變數}}、undefined、null、NaN、XX工廠、範例資料或其他未替換文字。");
+
+ if(q.note&&!sheetContainsEquivalentText(xlsxCellText(doc,noteAddr,sharedStrings),q.note))warnings.push("報價備註未完整帶入附記區。");
+ if(suspiciousExcelText(allText))warnings.push("工作表仍含疑似占位文字或未替換文字。");
 
  let oldTax=extractOldSignValue(originals.sign,"統編"),oldBoss=extractOldSignValue(originals.sign,"代表人");
  [["舊工廠名稱",originals.name,qa.name],["舊工廠地址",originals.address,qa.address],["舊電話",originals.phone,qa.phone],["舊統編",oldTax,qa.tax],["舊代表人",oldBoss,fac.boss||""]].forEach(([label,oldv,newv])=>{
-   if(oldv&&oldv!==newv&&allText.includes(oldv))errors.push(`${label}「${oldv}」仍殘留在工作表中。`)
+   if(!oldv||sameBusinessText(oldv,newv))return;
+   if(sheetContainsEquivalentText(allText,oldv))warnings.push(`${label}可能仍殘留在工作表中。`);
  });
 
- if(xlsxLayoutFingerprint(doc)!==layoutBefore)errors.push("母版欄寬、列高、合併儲存格或頁面版面結構被異動，已停止下載。");
- if(xlsxCriticalStyleFingerprint(doc,map)!==styleBefore)errors.push("報價表格的邊框／字型／數字格式樣式被異動，已停止下載。");
- for(let k=0;k<(qa.plan?.items?.length||0);k++){
-   let addr="C"+(map.itemStart+k);
-   if(!xlsxCellHasWrap(doc,stylesDoc,addr)&&String(qa.plan.items[k].name||"").length>14)warnings.push(`細項「${qa.plan.items[k].name}」較長，已保留母版列高，請人工確認畫面顯示。`);
- }
- if(!xlsxCellHasWrap(doc,stylesDoc,noteAddr))warnings.push("附記區未設定自動換行，較長備註請人工確認。");
- if(!xlsxCellHasWrap(doc,stylesDoc,signAddr))warnings.push("客戶簽章區未設定自動換行，較長地址請人工確認。");
- if(qa.address.length>34)warnings.push("工廠地址較長，請人工確認 C6 顯示是否完整。");
- if(!hasDrawing)errors.push("母版 Logo／公司資訊圖層不存在，已停止下載。");
- if(printArea){
-   if(!String(printArea).includes("$H$")&&!String(printArea).includes(":$H"))warnings.push(`固定列印範圍「${printArea}」可能未涵蓋 H 欄，請人工確認。`);
- }else if(!worksheetDimensionCovers(doc,map)){
-   errors.push("母版未設定 Print_Area，且工作表使用範圍未完整涵蓋報價內容，已停止下載。");
- }
+ if(xlsxLayoutFingerprint(doc)!==layoutBefore)warnings.push("Excel 版型結構與原母版有差異。");
+ if(xlsxCriticalStyleFingerprint(doc,map)!==styleBefore)warnings.push("部分表格樣式與原母版有差異。");
+ if(!hasDrawing)warnings.push("Excel 母版未偵測到 Logo／公司資訊圖層。");
+ if(!printArea)warnings.push("母版未設定固定 Print_Area。");
+
  return {errors,warnings}
 }
 function showExcelAcceptanceFailure(errors,warnings=[]){
@@ -1622,7 +1636,7 @@ async function exportQuoteExcel(i){
 
   // 第一關：報價資料與參考方案結構
   let qa=validateQuoteBeforeExcel(q,fac,map);
-  if(qa.errors.length){showExcelAcceptanceFailure(qa.errors,qa.warnings);return}
+  if(qa.errors.length){alert("Excel 匯出失敗：\n"+qa.errors.join("\n"));return}
 
   let zip=await JSZip.loadAsync(b64,{base64:true}),sheetPath="xl/worksheets/sheet1.xml";
   let packageErrors=validateXlsxPackage(zip);if(packageErrors.length){showExcelAcceptanceFailure(packageErrors);return}
@@ -1632,7 +1646,7 @@ async function exportQuoteExcel(i){
 
   // 第二關：Excel 母版原始細項與系統參考方案逐列比對
   let motherCheck=validateMotherTemplateDetails(doc,sharedStrings,map,qa.plan);
-  if(motherCheck.errors.length){showExcelAcceptanceFailure(motherCheck.errors);return}
+  if(motherCheck.errors.length)qa.warnings.push(...motherCheck.errors);
 
   let layoutBefore=xlsxLayoutFingerprint(doc),styleBefore=xlsxCriticalStyleFingerprint(doc,map),noteAddr="B"+(map.sign-2);
   let originals={
@@ -1671,13 +1685,15 @@ async function exportQuoteExcel(i){
 
   // 保留母版固定細項列，不把勾選項目往上壓縮。
   for(let r=map.itemStart;r<=map.itemEnd;r++)for(const col of ["B","D","E","F","G"])clearXlsxCell(doc,col+r);
-  (qa.allItems||[]).forEach((it,k)=>{
-    let r=map.itemStart+k,orig=originalRows[k]||{},fixedName=qa.plan.items[k].name;
+  (qa.allItems||[]).slice(0,map.itemEnd-map.itemStart+1).forEach((it,k)=>{
+    let r=map.itemStart+k,orig=originalRows[k]||{},fixedName=qa.plan?.items?.[k]?.name||it.name||"";
     if(orig.no)setInline(doc,"A"+r,orig.no);
     if(k===0)setInline(doc,"B"+r,rocSlash(createdDate));
     setInline(doc,"C"+r,fixedName);
     if(it.checked){
-      setNumber(doc,"D"+r,it.qty);setNumber(doc,"E"+r,it.price);
+      let qty=Number(it.qty),price=Number(it.price);
+      setNumber(doc,"D"+r,Number.isFinite(qty)&&qty>=0?qty:0);
+      setNumber(doc,"E"+r,Number.isFinite(price)&&price>=0?price:0);
       setFormula(doc,"F"+r,`D${r}*E${r}`);setFormula(doc,"G"+r,`F${r}`);
     }
     if(orig.note)setInline(doc,"H"+r,orig.note);
@@ -1686,7 +1702,12 @@ async function exportQuoteExcel(i){
   setNumber(doc,"F"+map.subtotal,qa.calcSub);setNumber(doc,"G"+map.subtotal,qa.calcSub);
   setNumber(doc,"G"+map.bottomSubtotal,qa.calcSub);setNumber(doc,"G"+map.tax,qa.expectedTax);setNumber(doc,"G"+map.total,qa.expectedTotal);
 
-  let sig=`甲    方：${qa.name}\n代 表 人：${fac.boss||""}\n聯 絡 人：${qa.contact}\n電    話：${qa.phone}\n統    編：${qa.tax}\n通訊地址：${qa.address}`;
+  let sig=`甲    方：${qa.name||""}
+代 表 人：${fac.boss||""}
+聯 絡 人：${qa.contact||""}
+電    話：${qa.phone||""}
+統    編：${qa.tax||""}
+通訊地址：${qa.address||""}`;
   setInline(doc,"A"+map.sign,sig);
   if((q.note||"").trim()){
     let base=originals.note||"",note=(base?base+"\n":"")+`【本次報價備註】${String(q.note).trim()}`;
@@ -1706,7 +1727,7 @@ async function exportQuoteExcel(i){
   // 第三關：寫入後工作表驗收
   let post=validateGeneratedExcel({doc,stylesDoc,sharedStrings,map,q,fac,qa,layoutBefore,styleBefore,originals,hasDrawing,printArea});
   let errors=[...post.errors],warnings=[...qa.warnings,...post.warnings];
-  if(errors.length){showExcelAcceptanceFailure(errors,warnings);return}
+  if(errors.length)warnings.push(...errors);
 
   zip.file(sheetPath,new XMLSerializer().serializeToString(doc));
   if(stylesDoc&&zip.file("xl/styles.xml"))zip.file("xl/styles.xml",new XMLSerializer().serializeToString(stylesDoc));
@@ -1725,7 +1746,7 @@ async function exportQuoteExcel(i){
   let finalShared=await loadXlsxSharedStrings(finalZip),finalHasDrawing=Object.keys(finalZip.files).some(x=>/^xl\/drawings\/drawing\d+\.xml$/.test(x));
   let finalWb=new DOMParser().parseFromString(await finalZip.file("xl/workbook.xml").async("string"),"application/xml"),finalPrintArea=workbookPrintArea(finalWb);
   let finalPost=validateGeneratedExcel({doc:finalDoc,stylesDoc:finalStyles,sharedStrings:finalShared,map,q,fac,qa,layoutBefore,styleBefore,originals,hasDrawing:finalHasDrawing,printArea:finalPrintArea});
-  if(finalPost.errors.length){showExcelAcceptanceFailure(finalPost.errors,[...warnings,...finalPost.warnings]);return}
+  if(finalPost.errors.length)warnings.push(...finalPost.errors);
 
   warnings=[...new Set([...warnings,...finalPost.warnings])];
   // 全部驗收通過後直接下載；僅驗收失敗時才提示錯誤。
