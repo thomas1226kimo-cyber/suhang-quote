@@ -139,6 +139,142 @@ aside{background:#fbfcfb;border-right:1px solid var(--line);padding:18px 14px;po
  .sidebar-brand-company{font-size:14px}
 }
 
+
+/* ===== v54 Responsive UX ===== */
+:root{--mobile-topbar-h:58px}
+html,body{max-width:100%;overflow-x:hidden}
+main{min-width:0}
+.panel,.x-scroll,.editor-scroll{
+  overflow-x:auto;
+  overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior-inline:contain;
+  scrollbar-gutter:stable both-edges;
+  touch-action:pan-x pan-y;
+}
+.panel::-webkit-scrollbar,.x-scroll::-webkit-scrollbar,.editor-scroll::-webkit-scrollbar{height:11px}
+.panel::-webkit-scrollbar-thumb,.x-scroll::-webkit-scrollbar-thumb,.editor-scroll::-webkit-scrollbar-thumb{background:#bfc9c3;border-radius:999px;border:2px solid transparent;background-clip:padding-box}
+.panel::-webkit-scrollbar-track,.x-scroll::-webkit-scrollbar-track,.editor-scroll::-webkit-scrollbar-track{background:#edf2ef}
+.panel.drag-scroll,.x-scroll.drag-scroll,.editor-scroll.drag-scroll{cursor:grab}
+.panel.drag-scroll.is-dragging,.x-scroll.drag-scroll.is-dragging,.editor-scroll.drag-scroll.is-dragging{cursor:grabbing;user-select:none}
+
+.mobile-menu-btn{
+  display:none;position:fixed;left:12px;top:10px;z-index:1202;
+  width:40px;height:40px;border:1px solid #d5ddd8;border-radius:10px;
+  background:#fff;color:#2f3a34;box-shadow:0 4px 18px rgba(0,0,0,.10);
+  align-items:center;justify-content:center;font-size:22px;line-height:1;cursor:pointer
+}
+.sidebar-backdrop{
+  display:none;position:fixed;inset:0;background:rgba(15,20,17,.34);z-index:1198
+}
+body.sidebar-open .sidebar-backdrop{display:block}
+
+.dialog{
+  display:flex;flex-direction:column;overflow:hidden;
+  will-change:transform;
+}
+.dialog .dhead{
+  flex:0 0 auto;cursor:move;touch-action:none;
+}
+.dialog .dbody{
+  flex:1 1 auto;min-height:0;
+  overflow:auto;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
+}
+.dialog.is-dragging{transition:none!important}
+.dialog.drag-reset{transition:transform .18s ease}
+.dialog .dhead .x{cursor:pointer}
+
+.quote-items-scroll{margin-top:0}
+.quote-items-scroll .qhead,.quote-items-scroll #qItems{min-width:760px}
+.qhead,.qrow{min-width:760px}
+
+@media(max-width:1200px){
+  .formgrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .filters{grid-template-columns:minmax(220px,1fr) 160px 160px auto}
+}
+
+@media(max-width:1000px){
+  .app{display:block;min-height:100vh}
+  aside{
+    position:fixed;left:0;top:0;bottom:0;z-index:1200;
+    width:min(300px,86vw);height:100dvh;overflow-y:auto;
+    transform:translateX(-104%);transition:transform .22s ease;
+    box-shadow:10px 0 35px rgba(0,0,0,.14);
+    padding-top:58px
+  }
+  body.sidebar-open aside{transform:translateX(0)}
+  .mobile-menu-btn{display:flex}
+  main{padding:calc(var(--mobile-topbar-h) + 14px) 18px 28px}
+  .top{gap:12px}
+  .planGrid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .summarybox,.overall-summary{grid-template-columns:1fr}
+}
+
+@media(max-width:760px){
+  main{padding:calc(var(--mobile-topbar-h) + 10px) 12px 24px}
+  h1{font-size:23px;line-height:1.25}
+  .top{flex-direction:column;align-items:stretch}
+  .top>.btn,.top>button{width:100%}
+  .cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .card{padding:12px}
+  .card b{font-size:20px}
+  .filters{grid-template-columns:1fr;gap:8px}
+  .grid2,.formgrid,.planGrid,.summarybox,.overall-summary{grid-template-columns:1fr}
+  .field[style*="grid-column:span 2"],
+  .field[style*="grid-column:span 4"]{grid-column:span 1!important}
+  .plan{min-width:0}
+  table{min-width:860px}
+  .overall-table{min-width:760px}
+  .panel{border-radius:10px}
+  .panel:after{
+    content:"← 左右滑動查看完整內容 →";
+    display:block;position:sticky;left:0;bottom:0;
+    width:max-content;max-width:100%;padding:5px 9px;
+    font-size:11px;color:#77827c;background:rgba(248,250,249,.94);
+    border-top:1px solid #edf1ee;pointer-events:none
+  }
+
+  .modal{
+    padding:0;align-items:stretch;justify-content:stretch;
+    background:rgba(20,25,23,.28)
+  }
+  .dialog,.dialog[style]{
+    width:100%!important;height:100dvh;max-height:100dvh!important;
+    border-radius:0;border-left:0;border-right:0;
+    transform:none!important
+  }
+  .dialog .dhead{
+    cursor:default;padding:13px 14px;
+    box-shadow:0 2px 10px rgba(0,0,0,.06)
+  }
+  .dialog .dbody{
+    padding:14px 12px calc(22px + env(safe-area-inset-bottom));
+    overflow:auto
+  }
+  .dialog .dhead>div{min-width:0}
+  .dialog .dhead .muted{white-space:normal}
+  .qhead,.qrow{min-width:720px}
+  .overall-tools{display:grid;grid-template-columns:1fr}
+  .overall-tools .btn{width:100%}
+  .actions{gap:5px}
+  .btn{min-height:38px}
+}
+
+@media(max-width:460px){
+  .cards{grid-template-columns:1fr}
+  .card{padding:11px}
+  .logo{font-size:18px}
+  .sidebar-brand-title{font-size:15px}
+  .sidebar-brand-sub{font-size:11px}
+  .dialog .dhead b{font-size:16px!important}
+}
+
+/* 關閉 sidebar 時避免背景捲動 */
+body.sidebar-open{overflow:hidden}
+@media(min-width:1001px){body.sidebar-open{overflow:auto}}
 </style></head><body>
 
 <div id="authGate">
@@ -168,6 +304,9 @@ aside{background:#fbfcfb;border-right:1px solid var(--line);padding:18px 14px;po
   <button id="authLogoutBtn" class="auth-logout-btn" type="button">登出</button>
 </div>
 
+
+<button id="mobileMenuBtn" class="mobile-menu-btn" type="button" aria-label="開啟側邊選單" aria-expanded="false">☰</button>
+<div id="sidebarBackdrop" class="sidebar-backdrop" aria-hidden="true"></div>
 <div class="app">
 <aside>
  <div class="sidebar-brand">
@@ -2137,4 +2276,189 @@ window.addEventListener("suhang-auth-logout",function(){
 })();
 </script>
 
+
+<script>
+(function(){
+  function isNarrow(){ return window.matchMedia("(max-width:1000px)").matches; }
+  function isPhone(){ return window.matchMedia("(max-width:760px)").matches; }
+
+  function setSidebar(open){
+    document.body.classList.toggle("sidebar-open", !!open);
+    const btn=document.getElementById("mobileMenuBtn");
+    if(btn){
+      btn.setAttribute("aria-expanded", open?"true":"false");
+      btn.textContent=open?"×":"☰";
+      btn.setAttribute("aria-label", open?"關閉側邊選單":"開啟側邊選單");
+    }
+  }
+
+  function installSidebar(){
+    const btn=document.getElementById("mobileMenuBtn");
+    const backdrop=document.getElementById("sidebarBackdrop");
+    if(btn&&!btn.dataset.ready){
+      btn.dataset.ready="1";
+      btn.addEventListener("click",()=>setSidebar(!document.body.classList.contains("sidebar-open")));
+    }
+    if(backdrop&&!backdrop.dataset.ready){
+      backdrop.dataset.ready="1";
+      backdrop.addEventListener("click",()=>setSidebar(false));
+    }
+    document.querySelectorAll("aside .nav").forEach(el=>{
+      if(el.dataset.mobileClose)return;
+      el.dataset.mobileClose="1";
+      el.addEventListener("click",()=>{if(isNarrow())setSidebar(false)});
+    });
+  }
+
+  function wrapQuoteItems(){
+    const modal=document.getElementById("quoteModal");
+    if(!modal)return;
+    const head=modal.querySelector(".qhead");
+    const items=modal.querySelector("#qItems");
+    if(!head||!items||head.closest(".quote-items-scroll"))return;
+    const wrap=document.createElement("div");
+    wrap.className="quote-items-scroll x-scroll";
+    head.parentNode.insertBefore(wrap,head);
+    wrap.appendChild(head);
+    wrap.appendChild(items);
+  }
+
+  function installDragScroll(el){
+    if(!el||el.dataset.dragScrollReady)return;
+    el.dataset.dragScrollReady="1";
+    el.classList.add("drag-scroll");
+
+    let active=false,startX=0,startLeft=0,moved=false,pointerId=null;
+    el.addEventListener("pointerdown",e=>{
+      if(e.pointerType==="touch")return;
+      if(e.button!==0)return;
+      if(e.target.closest("button,input,select,textarea,a,label"))return;
+      if(el.scrollWidth<=el.clientWidth+2)return;
+      active=true;moved=false;pointerId=e.pointerId;
+      startX=e.clientX;startLeft=el.scrollLeft;
+      el.classList.add("is-dragging");
+      try{el.setPointerCapture(e.pointerId)}catch(_){}
+    });
+    el.addEventListener("pointermove",e=>{
+      if(!active||e.pointerId!==pointerId)return;
+      const dx=e.clientX-startX;
+      if(Math.abs(dx)>4)moved=true;
+      if(moved){
+        el.scrollLeft=startLeft-dx;
+        e.preventDefault();
+      }
+    });
+    function stop(e){
+      if(!active)return;
+      active=false;
+      el.classList.remove("is-dragging");
+      try{el.releasePointerCapture(pointerId)}catch(_){}
+      pointerId=null;
+    }
+    el.addEventListener("pointerup",stop);
+    el.addEventListener("pointercancel",stop);
+    el.addEventListener("lostpointercapture",stop);
+  }
+
+  function refreshDragScroll(){
+    document.querySelectorAll(".panel,.x-scroll,.editor-scroll").forEach(installDragScroll);
+  }
+
+  function resetDialogPosition(dialog){
+    if(!dialog)return;
+    dialog.dataset.dragX="0";
+    dialog.dataset.dragY="0";
+    dialog.style.transform="";
+  }
+
+  function installDialogDrag(dialog){
+    if(!dialog||dialog.dataset.dragReady)return;
+    const head=dialog.querySelector(".dhead");
+    if(!head)return;
+    dialog.dataset.dragReady="1";
+
+    let active=false,pointerId=null,startX=0,startY=0,baseX=0,baseY=0,startRect=null;
+    head.addEventListener("pointerdown",e=>{
+      if(isPhone())return;
+      if(e.button!==0)return;
+      if(e.target.closest("button,input,select,textarea,a,label"))return;
+
+      active=true;pointerId=e.pointerId;
+      startX=e.clientX;startY=e.clientY;
+      baseX=Number(dialog.dataset.dragX||0);
+      baseY=Number(dialog.dataset.dragY||0);
+      startRect=dialog.getBoundingClientRect();
+      dialog.classList.add("is-dragging");
+      try{head.setPointerCapture(e.pointerId)}catch(_){}
+      e.preventDefault();
+    });
+
+    head.addEventListener("pointermove",e=>{
+      if(!active||e.pointerId!==pointerId||!startRect)return;
+      let dx=e.clientX-startX,dy=e.clientY-startY;
+      const keep=36;
+      const minDx=keep-startRect.right;
+      const maxDx=window.innerWidth-keep-startRect.left;
+      const minDy=keep-startRect.bottom;
+      const maxDy=window.innerHeight-keep-startRect.top;
+      dx=Math.max(minDx,Math.min(maxDx,dx));
+      dy=Math.max(minDy,Math.min(maxDy,dy));
+
+      const nx=baseX+dx,ny=baseY+dy;
+      dialog.dataset.dragX=String(nx);
+      dialog.dataset.dragY=String(ny);
+      dialog.style.transform=`translate(${nx}px,${ny}px)`;
+    });
+
+    function stop(e){
+      if(!active)return;
+      active=false;
+      dialog.classList.remove("is-dragging");
+      try{head.releasePointerCapture(pointerId)}catch(_){}
+      pointerId=null;startRect=null;
+    }
+    head.addEventListener("pointerup",stop);
+    head.addEventListener("pointercancel",stop);
+    head.addEventListener("lostpointercapture",stop);
+
+    head.addEventListener("dblclick",e=>{
+      if(e.target.closest("button,input,select,textarea,a,label"))return;
+      resetDialogPosition(dialog);
+    });
+  }
+
+  function refreshDialogs(){
+    document.querySelectorAll(".dialog").forEach(installDialogDrag);
+  }
+
+  function normalizeForViewport(){
+    if(isPhone()){
+      document.querySelectorAll(".dialog").forEach(resetDialogPosition);
+    }
+    if(!isNarrow())setSidebar(false);
+  }
+
+  function initResponsiveUX(){
+    installSidebar();
+    wrapQuoteItems();
+    refreshDragScroll();
+    refreshDialogs();
+    normalizeForViewport();
+
+    const observer=new MutationObserver(()=>{
+      refreshDragScroll();
+      refreshDialogs();
+    });
+    observer.observe(document.body,{childList:true,subtree:true});
+
+    window.addEventListener("resize",normalizeForViewport,{passive:true});
+    window.addEventListener("keydown",e=>{
+      if(e.key==="Escape"&&document.body.classList.contains("sidebar-open"))setSidebar(false);
+    });
+  }
+
+  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",initResponsiveUX);
+  else initResponsiveUX();
+})();
+</script>
 </body></html>
