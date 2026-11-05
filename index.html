@@ -880,7 +880,7 @@ function openDoc(type,recordIndex=null){
    <div class="field"><label>抽水肥</label><input id="costPump" type="number" value="35000"></div>
    <div class="field"><label>總體預估</label><input id="costTotal" type="number" value="605000"></div>
   </div>`;
-  $("docNotice").textContent="專案經費表會套入工廠名稱、廠地面積、建物樓地板面積、工廠地址、建立日期與上方參考費用；未填欄位保持空白。";
+  $("docNotice").textContent="專案經費表會帶入工廠資料中的廠地面積及業務專員（專案負責人），並套入其他基本資料、日期與費用；未填欄位保持空白。";
  }
 
  // 已產生過的文件可從總覽重新開啟，再次下載 Word。
@@ -1020,11 +1020,11 @@ async function generateWord(){
   let estimates=recordMeta.projectCosts;
   replaceWord(doc,"芳宇科技有限公司",fac.name||"");
   replaceWord(doc,"桃園市龜山區大同路689號",fac.address||"");
-  replaceWord(doc,"1266.66",site?String(site):"");
+  let projectOwner=projectBusiness(fac,{quoter,contact:fac.contact||""});
+  setProjectHeader(doc,projectArea(fac,null),projectOwner);
   replaceWord(doc,"1327.55",buildingPing||"");
   replaceWord(doc,"預估日期：115年11月4日（有效期限30天，至115/12/2）",`預估日期：${rocDateParts(date).y}年${rocDateParts(date).m}月${rocDateParts(date).d}日（有效期限30天，至${rocSlash(addDays(date,29))}）`);
-  replaceWord(doc,"專案負責人：傅郁雲",`專案負責人：${quoter}`);
-  if(quoter)replaceWord(doc,"承辦人:__________________",`承辦人:${quoter}`);
+  if(projectOwner)replaceWord(doc,"承辦人:__________________",`承辦人:${projectOwner}`);
   replaceWord(doc,"建築師簽證預估115,000元",`建築師簽證預估${fmtInt(estimates.architect)}元`);
   replaceWord(doc,"送審報價72,000元",`送審報價${fmtInt(estimates.fire)}元`);
   replaceWord(doc,"搭排文書及會勘55,000元",`搭排文書及會勘${fmtInt(estimates.drain)}元`);
@@ -1034,7 +1034,13 @@ async function generateWord(){
   replaceWord(doc,"抽水肥35,000元",`抽水肥${fmtInt(estimates.pump)}元`);
   if(estimates.waste)appendProjectCostRow(doc,"廢棄物清理計畫書","環保顧問／技師",`廢清書預估${fmtInt(estimates.waste)}元`);
   renumberProjectCostRows(doc);
-  replaceWord(doc,"總體預估約花費475,000元",`總體預估約花費${fmtInt(estimates.total)}元`);
+  let projectItems=[
+    ["architect","建築師簽證與繪圖"],["waste","廢棄物清理計畫書"],
+    ["fire","消防會審會勘／消防相關"],["drain","搭排文書及會勘"],
+    ["engineer","技師簽證"],["water","水質檢測"],
+    ["sewage","污水處理設施"],["pump","抽水肥"]
+  ].filter(([key])=>Number(estimates[key]||0)>0).map(([,label])=>label);
+  setProjectSummary(doc,`專案評估重點總結：本次納入之服務項目：${projectItems.length?projectItems.join("、"):"無"}。總體預估約花費${fmtInt(estimates.total)}元（未稅，不含政府輔導金）。`);
   replaceWord(doc,"評估日期：中華民國 115 年 11 月 4 日",`評估日期：${rocDateText(date,false)}`);
 
  }
@@ -1312,21 +1318,89 @@ function overallIncluded(q,key){
  return !!(r&&r.include)
 }
 
+// v58: 專案經費表統一以工廠主檔／已存報價資料帶入，避免母版示例殘留。
+function projectNumber(value){
+ let s=String(value??"").replace(/[,，\s]/g,"").replace(/(平方公尺|㎡)/g,"");
+ if(!s)return 0;
+ let n=Number(s);
+ return Number.isFinite(n)&&n>0?n:0
+}
+function projectArea(fac,q){
+ return projectNumber(fac?.siteArea)||projectNumber(q?.siteArea)||0
+}
+function projectBusiness(fac,q){
+ // 「專案負責人」是該廠業務專員，報價人只作為舊資料的備援。
+ return String(fac?.contact||q?.contact||fac?.salesSpecialist||q?.salesSpecialist||q?.quoter||"").trim()
+}
+function projectAreaText(area){
+ return area?new Intl.NumberFormat("en-US",{maximumFractionDigits:3}).format(area):""
+}
+function setProjectHeader(doc,site,owner){
+ let table=[...doc.getElementsByTagNameNS(WNS,"tbl")].find(t=>wordRowText(t).includes("案件名稱：")&&wordRowText(t).includes("廠地面積："));
+ if(!table)return false;
+ let rows=[...table.childNodes].filter(n=>n.nodeType===1&&n.localName==="tr");
+ if(rows.length<5)return false;
+ let areaCells=[...rows[1].childNodes].filter(n=>n.nodeType===1&&n.localName==="tc");
+ let ownerCells=[...rows[4].childNodes].filter(n=>n.nodeType===1&&n.localName==="tc");
+ if(areaCells.length<2||ownerCells.length<2)return false;
+ // 原母版把「廠地面積」與數值拆成兩個段落；合成同一行，版面更清楚。
+ let areaPs=[...areaCells[1].childNodes].filter(n=>n.nodeType===1&&n.localName==="p");
+ if(!areaPs.length)return false;
+ setWordCellContent(areaCells[1],`廠地面積：${projectAreaText(site)}${site?" ":""}平方公尺`);
+ for(let j=1;j<areaPs.length;j++)areaPs[j].parentNode?.removeChild(areaPs[j]);
+ // 專案負責人固定套用業務專員：有值寫姓名，沒有則保持空白。
+ setWordCellContent(ownerCells[1],`專案負責人：${owner}`);
+ // 同一份母版下方還有一處「專案負責人」，需要同步替換。
+ replaceWord(doc,"傅郁雲",owner);
+ return true
+}
+const PROJECT_SUMMARY_DISCLAIMER="本次綜合報價僅提供預估，以利貴公司進行整體投資報酬與營運評估，不作為最後實際費用之正式報價。";
+function setProjectSummary(doc,body){
+ let table=[...doc.getElementsByTagNameNS(WNS,"tbl")].find(t=>wordRowText(t).includes("專案評估重點總結"));
+ if(!table)return false;
+ let cell=[...table.getElementsByTagNameNS(WNS,"tc")][0];
+ if(!cell)return false;
+ let ps=[...cell.childNodes].filter(n=>n.nodeType===1&&n.localName==="p"),p=ps[0];
+ if(!p)return false;
+ let ts=[...p.getElementsByTagNameNS(WNS,"t")];
+ if(!ts.length)return false;
+ // 保留母版原本的 💡 圖示與 Word 字型樣式。
+ if(ts.length>1){
+  ts[0].textContent="💡 ";
+  ts[1].textContent=String(body??"");
+  ts[1].setAttributeNS(XMLNS,"xml:space","preserve");
+  for(let j=2;j<ts.length;j++)ts[j].textContent="";
+ }else{
+  ts[0].textContent=String(body??"");
+  ts[0].setAttributeNS(XMLNS,"xml:space","preserve");
+ }
+ // 重複產出時去除已加註的末行，以免重複。
+ for(let j=1;j<ps.length;j++)if(wordRowText(ps[j]).includes(PROJECT_SUMMARY_DISCLAIMER))ps[j].parentNode?.removeChild(ps[j]);
+ let last=doc.createElementNS(WNS,"w:p");
+ let pPr=[...p.childNodes].find(n=>n.nodeType===1&&n.localName==="pPr");
+ if(pPr)last.appendChild(pPr.cloneNode(true));
+ let run=doc.createElementNS(WNS,"w:r"),rPr=doc.createElementNS(WNS,"w:rPr"),bold=doc.createElementNS(WNS,"w:b");
+ rPr.appendChild(bold);run.appendChild(rPr);
+ let t=doc.createElementNS(WNS,"w:t");t.textContent=PROJECT_SUMMARY_DISCLAIMER;
+ t.setAttributeNS(XMLNS,"xml:space","preserve");run.appendChild(t);last.appendChild(run);
+ cell.appendChild(last);
+ return true
+}
+
 async function generateOverallWord(i){
  try{
   let q=state.overallQuotes[i];if(!q)return alert("找不到整體費用報價");
   let fac=state.factories.find(x=>x.id===q.factoryCode)||q;
   if(typeof JSZip==="undefined")return alert("Word 產出元件未載入");
   let zip=await JSZip.loadAsync(DOCX_TEMPLATES.project,{base64:true}),path="word/document.xml",xml=await zip.file(path).async("string"),doc=new DOMParser().parseFromString(xml,"application/xml");
-  let date=q.date||today(),site=Number(fac.siteArea||0),building=Number(fac.buildingArea||0),buildingPing=building?pingFromSqm(building):"";
+  let date=q.date||today(),site=projectArea(fac,q),building=projectNumber(fac.buildingArea)||projectNumber(q.buildingArea),buildingPing=building?pingFromSqm(building):"";
   replaceWord(doc,"芳宇科技有限公司",fac.name||q.factoryName||"");
   replaceWord(doc,"桃園市龜山區大同路689號",fac.address||q.address||"");
-  replaceWord(doc,"1266.66",site?String(site):"");
+  let projectOwner=projectBusiness(fac,q);
+  setProjectHeader(doc,site,projectOwner);
   replaceWord(doc,"1327.55",buildingPing||"");
   replaceWord(doc,"預估日期：115年11月4日（有效期限30天，至115/12/2）",`預估日期：${rocDateParts(date).y}年${rocDateParts(date).m}月${rocDateParts(date).d}日（有效期限30天，至${rocSlash(addDays(date,29))}）`);
-  let quoter=String(q.quoter||"").trim();
-  replaceWord(doc,"專案負責人：傅郁雲",`專案負責人：${quoter}`);
-  if(quoter)replaceWord(doc,"承辦人:__________________",`承辦人:${quoter}`);
+  if(projectOwner)replaceWord(doc,"承辦人:__________________",`承辦人:${projectOwner}`);
 
   let specific=overallCost(q,"specific"),s1=Math.round(specific*.5),s2=Math.round(specific*.3),s3=specific-s1-s2;
   if(overallIncluded(q,"specific")){
@@ -1365,8 +1439,8 @@ async function generateOverallWord(i){
   if(overallIncluded(q,"gov"))appendProjectCostRow(doc,"政府納管輔導金","政府主管機關",overallCost(q,"gov")?`依廠地面積計算：每年${fmtInt(overallCost(q,"gov"))}元（政府費用另計）`:"依廠地面積計算，金額待確認");
   renumberProjectCostRows(doc);
   let selectedLabels=(q.costs||[]).filter(x=>x.include&&!x.government).map(x=>x.label).filter(Boolean);
-  let summary=`專案評估重點總結：本次納入服務項目為${selectedLabels.length?selectedLabels.join("、"):"無"}。服務費用合計${fmtInt(q.serviceTotal||0)}元（未稅，不含政府輔導金），本次綜合報價僅提供預估，實際費用以正式報價為準。`;
-  setWordRowCellText(doc,"專案評估重點總結",0,summary);
+  let summary=`專案評估重點總結：本次納入之服務項目：${selectedLabels.length?selectedLabels.join("、"):"無"}。服務費用合計${fmtInt(q.serviceTotal||0)}元（未稅，不含政府輔導金）。`;
+  setProjectSummary(doc,summary);
   replaceWord(doc,"評估日期：中華民國 115 年 11 月 4 日",`評估日期：${rocDateText(date,false)}`);
   zip.file(path,new XMLSerializer().serializeToString(doc));
   let blob=await zip.generateAsync({type:"blob",mimeType:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
